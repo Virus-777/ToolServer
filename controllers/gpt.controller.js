@@ -1,5 +1,10 @@
 const model = require('../database/model');
 const { handleError } = require('../utils/utils');
+const OpenAI = require('openai');
+const openai = new OpenAI({
+    baseURL: 'http://localhost:11434/v1',
+    apiKey: 'ollama',
+});
 
 // Available GPT models
 const GPT_MODELS = [
@@ -147,5 +152,16 @@ exports.saveApiKey = async (req, res) => {
     } catch (error) {
         console.error('Save API key error:', error);
         handleError(res, 500, 'Error saving API key');
+    }
+}
+
+exports.getResponses = async (req, res) => {
+    try {
+        const response = await openai.responses.create(req.body);
+
+        res.status(200).send(response);
+    } catch (error) {
+        console.error('Get responses error:', error);
+        handleError(res, 500, 'Error fetching responses');
     }
 }

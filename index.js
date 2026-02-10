@@ -48,8 +48,6 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     // Initialize Passport
     app.use(passport.initialize());
 
-    app.use('/api/openai', createProxyMiddleware({ target: 'http://localhost:11434/v1', changeOrigin: true, pathRewrite: { '^/api/openai': '' }, timeout: 10000, proxyTimeout: 10000 }));
-
     // Middleware
     app.use(morgan('dev')); // HTTP request logger
     app.use(bodyParser.urlencoded({ extended: true, limit: '50kb'}));

@@ -1,5 +1,5 @@
 const express = require('express');
-const { getAvailableModels, getSelectedModel, setSelectedModel, getApiKey, saveApiKey } = require('../controllers/gpt.controller');
+const { getAvailableModels, getSelectedModel, setSelectedModel, getApiKey, saveApiKey, getResponses } = require('../controllers/gpt.controller');
 const { authenticateAdmin, authenticate } = require('../utils/auth.middleware');
 const router = express.Router();
 
@@ -14,5 +14,8 @@ router.route('/selected')
 router.route('/apikey')
     .get(authenticateAdmin, getApiKey)
     .post(authenticateAdmin, saveApiKey);
+
+router.route('/responses')
+    .post(getResponses);
 
 module.exports = router;
