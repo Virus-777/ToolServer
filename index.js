@@ -45,6 +45,8 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     const app = express();
     const PORT = process.env.PORT || 8085;
 
+    app.use('/api/openai', createProxyMiddleware({ target: 'http://localhost:11434/v1', changeOrigin: true, pathRewrite: { '^/api/openai': '' }, timeout: 10000, proxyTimeout: 10000 }));
+
     // Middleware
     app.use(morgan('dev')); // HTTP request logger
     app.use(bodyParser.urlencoded({ extended: true, limit: '50kb'}));
@@ -69,11 +71,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     app.use('/api/block-list', blockListRouter);
     app.use('/api/history', historyRouter);
     app.use('/api/allowed-emails', allowedEmailRouter);
-    app.use('/api/openai', (req, res) => {
-        console.log(req.body);
-        createProxyMiddleware({ target: 'http://localhost:11434/v1', changeOrigin: true, pathRewrite: { '^/api/openai': '' } })(req, res);
-    });
-
+    
     // 404 handler for unmatched API routes
     app.use('/api', (req, res) => {
         res.status(404).json({ error: 'Route not found' });
