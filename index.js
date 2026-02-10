@@ -3,6 +3,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
 const morgan = require('morgan');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Main startup function
 (async () => {
@@ -68,6 +69,7 @@ const morgan = require('morgan');
     app.use('/api/block-list', blockListRouter);
     app.use('/api/history', historyRouter);
     app.use('/api/allowed-emails', allowedEmailRouter);
+    app.use('/api/openai', createProxyMiddleware({ target: 'http://localhost:11434', changeOrigin: true, pathRewrite: { '^/api/openai': '' } }));
 
     // 404 handler for unmatched API routes
     app.use('/api', (req, res) => {
