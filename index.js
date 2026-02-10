@@ -69,7 +69,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     app.use('/api/block-list', blockListRouter);
     app.use('/api/history', historyRouter);
     app.use('/api/allowed-emails', allowedEmailRouter);
-    app.use('/api/openai', createProxyMiddleware({ target: 'http://localhost:11434', changeOrigin: true, pathRewrite: { '^/api/openai': '' } }));
+    app.use('/api/openai', createProxyMiddleware({ target: 'http://localhost:11434/v1', changeOrigin: true, pathRewrite: { '^/api/openai': '' } }));
 
     // 404 handler for unmatched API routes
     app.use('/api', (req, res) => {
