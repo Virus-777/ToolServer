@@ -45,6 +45,9 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     const app = express();
     const PORT = process.env.PORT || 8085;
 
+    // Initialize Passport
+    app.use(passport.initialize());
+
     app.use('/api/openai', createProxyMiddleware({ target: 'http://localhost:11434/v1', changeOrigin: true, pathRewrite: { '^/api/openai': '' }, timeout: 10000, proxyTimeout: 10000 }));
 
     // Middleware
@@ -52,9 +55,6 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     app.use(bodyParser.urlencoded({ extended: true, limit: '50kb'}));
     app.use(bodyParser.json({ limit: '50kb' }));
     app.use(cors());
-
-    // Initialize Passport
-    app.use(passport.initialize());
 
     // Serve static files from public directory
     app.use(express.static(path.join(__dirname, 'public')));
