@@ -9,6 +9,8 @@ const GPT_MODELS = [
     { id: 'gpt-4o', name: 'GPT-4o', description: 'Multimodal model with vision capabilities' },
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Compact version of GPT-4o' },
     { id: 'gpt-4.1-mini-2025-04-14', name: 'GPT-4.1 Mini', description: 'Compact version of GPT-4.1' },
+    { id: 'gpt-oss:120b-cloud', name: 'GPT-OSS 120B Cloud', description: '120B parameter model for cloud use on ollama' },
+    { id: 'kimi-k2.5:cloud', name: 'Kimi K2.5 Cloud', description: 'Kimi K2.5 model for cloud use on ollama' },
 ];
 
 const SETTING_KEY = 'selected_gpt_model';
