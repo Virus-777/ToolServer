@@ -50,8 +50,8 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
     // Middleware
     app.use(morgan('dev')); // HTTP request logger
-    app.use(bodyParser.urlencoded({ extended: true, limit: '50kb'}));
-    app.use(bodyParser.json({ limit: '50kb' }));
+    app.use(bodyParser.urlencoded({ extended: true, limit: '500kb'}));
+    app.use(bodyParser.json({ limit: '500kb' }));
     app.use(cors());
 
     // Serve static files from public directory
