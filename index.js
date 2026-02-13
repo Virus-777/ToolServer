@@ -40,6 +40,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     const blockListRouter = require('./routers/block-list.router');
     const historyRouter = require('./routers/history.router');
     const allowedEmailRouter = require('./routers/allowed-email.router');
+    const assemblyTokenRouter = require('./routers/assembly-token.router');
     const { setupDatabase } = require('./database/setup');
 
     const app = express();
@@ -69,6 +70,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
     app.use('/api/block-list', blockListRouter);
     app.use('/api/history', historyRouter);
     app.use('/api/allowed-emails', allowedEmailRouter);
+    app.use('/api/assembly-tokens', assemblyTokenRouter);
     
     // 404 handler for unmatched API routes
     app.use('/api', (req, res) => {

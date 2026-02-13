@@ -341,7 +341,7 @@ exports.verify = async (req, res) => {
 
 exports.getUserByIP = async (req, res) => {
     const { ip } = req.params;
-
+console.log(ip)
     try {
         const user = await model.getUserByIP(ip);
 

@@ -305,3 +305,33 @@ export const AllowedEmailAPI = {
     });
   },
 };
+
+export const AssemblyTokenAPI = {
+  async getAll() {
+    return apiRequest('/assembly-tokens/');
+  },
+
+  async getById(id) {
+    return apiRequest(`/assembly-tokens/${id}`);
+  },
+
+  async create(user_id, api_key) {
+    return apiRequest('/assembly-tokens/', {
+      method: 'POST',
+      body: JSON.stringify({ user_id, api_key }),
+    });
+  },
+
+  async update(id, user_id, api_key) {
+    return apiRequest(`/assembly-tokens/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ user_id, api_key }),
+    });
+  },
+
+  async delete(id) {
+    return apiRequest(`/assembly-tokens/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};

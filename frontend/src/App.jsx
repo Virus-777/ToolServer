@@ -9,6 +9,7 @@ import Configs from './pages/Configs';
 import Jobs from './pages/Jobs';
 import History from './pages/History';
 import AllowedEmails from './pages/AllowedEmails';
+import AssemblyTokens from './pages/AssemblyTokens';
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -61,6 +62,7 @@ const AppLayout = () => {
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/history" element={<History />} />
           <Route path="/allowed-emails" element={<AllowedEmails />} />
+          <Route path="/assembly-tokens" element={<AssemblyTokens />} />
           <Route path="/login" element={<Navigate to="/users" replace />} />
           <Route path="/" element={<Navigate to="/users" replace />} />
         </Routes>

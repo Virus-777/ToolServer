@@ -126,7 +126,16 @@ async function setupDatabase() {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        
+        await appClient.query(`
+            CREATE TABLE IF NOT EXISTS assembly_tokens (
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                user_id INT NOT NULL,
+                api_key VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+       
         // console.log('🧩 Tables created successfully!');
 
         console.log('✅ Setup complete!');

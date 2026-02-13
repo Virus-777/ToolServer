@@ -706,3 +706,57 @@ exports.isEmailAllowed = async (email) => {
     );
     return res.rows.length > 0;
 }
+
+// Assembly Token Management Functions
+exports.getAllAssemblyTokens = async () => {
+    const res = await db.query(
+        `SELECT at.*, u.name as user_name, u.email as user_email 
+         FROM assembly_tokens at 
+         LEFT JOIN users u ON at.user_id = u.id 
+         ORDER BY at.created_at DESC`
+    );
+    return res.rows;
+}
+
+exports.getAssemblyTokenById = async (id) => {
+    const res = await db.query(
+        `SELECT at.*, u.name as user_name, u.email as user_email 
+         FROM assembly_tokens at 
+         LEFT JOIN users u ON at.user_id = u.id 
+         WHERE at.id = $1`,
+        [id]
+    );
+    return res.rows[0];
+}
+
+exports.getAssemblyToken = async (userId) => {
+    const res = await db.query(
+        'SELECT * FROM assembly_tokens WHERE user_id = $1',
+        [userId]
+    );
+    return res.rows[0];
+}
+
+exports.createAssemblyToken = async (userId, apiKey) => {
+    const res = await db.query(
+        'INSERT INTO assembly_tokens (user_id, api_key) VALUES ($1, $2) RETURNING *',
+        [userId, apiKey]
+    );
+    return res.rows[0];
+}
+
+exports.updateAssemblyToken = async (id, userId, apiKey) => {
+    const res = await db.query(
+        'UPDATE assembly_tokens SET user_id = $1, api_key = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *',
+        [userId, apiKey, id]
+    );
+    return res.rows[0];
+}
+
+exports.deleteAssemblyToken = async (id) => {
+    const res = await db.query(
+        'DELETE FROM assembly_tokens WHERE id = $1 RETURNING *',
+        [id]
+    );
+    return res.rows[0];
+}

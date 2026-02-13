@@ -165,3 +165,55 @@ exports.userVerify = async (req, res) => {
         handleError(res, 500, 'Error verifying user token');
     }
 }
+
+exports.getAssemblyToken = async (req, res) => {
+    try {
+        const user = await model.getUserById(req.user.id);
+        if (!user) {
+            return handleError(res, 404, 'User not found');
+        }
+        const assemblyToken = await model.getAssemblyToken(user.id);
+        if (!assemblyToken) {
+            return handleError(res, 404, 'Assembly token not found');
+        }
+        res.status(200).json({
+            message: 'Assembly token retrieved successfully',
+            apiKey: assemblyToken.api_key
+        });
+    } catch (error) {
+        console.error('Get assembly token error:', error);
+        handleError(res, 500, 'Error getting assembly token');
+    }
+}
+
+exports.createAssemblyToken = async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        const user = await model.getUserById(req.user.id);
+        if (!user) {
+            return handleError(res, 404, 'User not found');
+        }
+        const assemblyToken = await model.createAssemblyToken(user.id, apiKey);
+        
+        // Log history
+        const clientIP = getClientIP(req);
+        await model.createHistoryLog(
+            user.id,
+            user.email,
+            'create',
+            'assembly_token',
+            assemblyToken.id,
+            `Assembly token created by user: ${user.email}`,
+            clientIP,
+            { user_id: user.id, user_email: user.email }
+        );
+        
+        res.status(200).json({
+            message: 'Assembly token created successfully',
+            apiKey: assemblyToken.api_key
+        });
+    } catch (error) {
+        console.error('Create assembly token error:', error);
+        handleError(res, 500, 'Error creating assembly token');
+    }
+}
