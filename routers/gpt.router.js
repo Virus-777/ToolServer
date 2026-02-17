@@ -8,7 +8,8 @@ router.route('/models')
     .get(authenticateAdmin, getAvailableModels);
 
 router.route('/selected')
-    .get(authenticate, getSelectedModel)
+    // .get(authenticate, getSelectedModel)
+    .get(getSelectedModel)
     .post(authenticateAdmin, setSelectedModel);
 
 router.route('/apikey')
