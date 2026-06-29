@@ -84,7 +84,7 @@ exports.createJob = async (req, res) => {
         }
 
         // Check if URL already exists using normalized URL
-        const existingJob = await model.getJobByNormalizedUrl(url);
+        const existingJob = await model.getJobByUrl(url);
         if (existingJob) {
             return handleError(res, 409, 'Job with this URL already exists');
         }
