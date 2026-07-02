@@ -9,6 +9,9 @@ const openai = new OpenAI({
 // Available GPT models
 const GPT_MODELS = [
     // GPT-5 series
+    { id: 'gpt-5.5', name: 'GPT-5.5', description: 'Input $5.00 | Cached $0.50 | Output $30.00' },
+    { id: 'gpt-5.4', name: 'GPT-5.4', description: 'Input $2.50 | Cached $0.25 | Output $15.00' },
+    { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', description: 'Input $0.75 | Cached $0.075 | Output $4.50' },
     { id: 'gpt-5.2', name: 'GPT-5.2', description: 'Input $1.75 | Cached $0.175 | Output $14.00' },
     { id: 'gpt-5.1', name: 'GPT-5.1', description: 'Input $1.25 | Cached $0.125 | Output $10.00' },
     { id: 'gpt-5', name: 'GPT-5', description: 'Input $1.25 | Cached $0.125 | Output $10.00' },
