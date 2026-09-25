@@ -1,395 +1,176 @@
-# TailorResumeAuthServer
+# TailorResume Auth Server
 
-Authentication server for the JobBidAssist TailorResume application with comprehensive user, IP, and settings management.
-
-## Features
-
-- **User Authentication**: JWT-based authentication with bcrypt password hashing
-- **User Management**: Complete CRUD operations for user accounts
-- **IP Management**: Track and manage IP addresses associated with users
-- **Settings Management**: Flexible key-value settings storage
-- **PostgreSQL Database**: Robust relational database with connection pooling
-- **RESTful API**: Clean, well-structured API endpoints
-- **Management UI**: Modern web-based dashboard for easy administration
+Backend API and admin dashboard ("KingMaker") for the TailorResume / JobBidAssist client application.
+It manages users and their access, the daily job feed, block lists, per-user configuration,
+the GPT model selection and an audit log.
 
 ## Tech Stack
 
-- **Runtime**: Node.js
-- **Framework**: Express.js v5.1.0
-- **Database**: PostgreSQL
-- **Authentication**: JWT (jsonwebtoken) + bcryptjs
-- **Additional**: CORS, body-parser, dotenv
+| Layer     | Technology                                             |
+| --------- | ------------------------------------------------------ |
+| Runtime   | Node.js 18+ (packaged with `pkg` for distribution)     |
+| API       | Express 5, Passport JWT, bcryptjs                       |
+| Database  | PostgreSQL (`pg` connection pool)                       |
+| Dashboard | React 18, Vite 5, Tailwind CSS 3 (built into `public/`) |
 
-## Prerequisites
+## Quick Start
 
-- Node.js (v14 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd TailorResumeAuthServer
-```
-
-2. Install dependencies:
 ```bash
 npm install
+cp .env.example .env        # fill in PostgreSQL credentials and JWT_SECRET
+npm start                   # creates/updates the schema, then listens on PORT (default 8085)
 ```
 
-3. Configure environment variables:
+Open `http://localhost:8085` for the dashboard. The first account registered through
+`POST /api/admin/register` (or the "Add User" button) becomes an administrator.
+
+Development:
+
 ```bash
-cp .env.example .env
+npm run dev                 # backend with nodemon
+npm run frontend:install    # once
+npm run frontend:dev        # Vite dev server on http://localhost:3003 (proxies /api to 8085)
+npm run frontend:build      # rebuilds public/ (commit the result, the server serves it)
 ```
 
-Edit `.env` with your configuration:
-```env
-PORT=3000
-PG_HOST=localhost
-PG_PORT=5432
-PG_USER=postgres
-PG_PASSWORD=your_password
-PG_DATABASE=tailorresume_auth
-JWT_SECRET=your_secret_key
-```
+Other scripts: `npm run check` (syntax check), `npm run setup` (schema only),
+`npm run import:bid [file.xlsx]` (import jobs from a bid spreadsheet), `npm run build:win`
+(standalone executable, see below).
 
-4. Setup database:
-```bash
-npm run setup
-```
+## Configuration
 
-5. Start the server:
-```bash
-# Production
-npm start
+All settings come from environment variables (`.env` in development, `config/production.config.js`
+embedded in the executable). See `.env.example` for the full list.
 
-# Development (with nodemon)
-npm run dev
-```
+| Variable                                   | Default                        | Purpose                                              |
+| ------------------------------------------ | ------------------------------ | ---------------------------------------------------- |
+| `PORT`                                     | `8085`                         | HTTP port                                            |
+| `PG_HOST` `PG_PORT` `PG_USER` `PG_PASSWORD` `PG_DATABASE` | required        | PostgreSQL connection (database is created if missing) |
+| `PG_POOL_MAX`, `PG_CONNECT_TIMEOUT_MS`     | `20`, `5000`                   | Connection pool tuning                               |
+| `JWT_SECRET`                               | built-in default               | Legacy tokens; also the fallback for the two below   |
+| `JWT_ADMIN_SECRET`, `JWT_USER_SECRET`      | falls back to `JWT_SECRET`     | Dashboard tokens / client-app tokens                 |
+| `JWT_EXPIRES_IN`                           | `24h`                          | Token lifetime                                       |
+| `CORS_ORIGIN`                              | any origin                     | Comma separated allow-list                           |
+| `BODY_LIMIT`                               | `500kb`                        | Max request body                                     |
+| `OLLAMA_BASE_URL`, `OLLAMA_API_KEY`        | `http://127.0.0.1:11434/v1`    | Gateway behind `POST /api/gpt/responses`             |
+| `STARTUP_AUTH_ENABLED` (+ `STARTUP_PASSWORD…`) | off                        | Optional interactive password prompt at start-up     |
+| `NODE_ENV`                                 |                                | `production` switches request logs to `combined`     |
 
-6. Access the Management UI:
-```
-Open your browser and navigate to: http://localhost:3000
-```
-
-For detailed UI documentation, see [MANAGEMENT_UI.md](MANAGEMENT_UI.md)
-
-## API Documentation
-
-Base URL: `http://localhost:3000`
-
-### Authentication Endpoints
-
-#### Register User
-```http
-POST /api/auth/signup
-Content-Type: application/json
-
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "securepassword",
-  "confirm_password": "securepassword"
-}
-```
-
-#### Login
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "john@example.com",
-  "password": "securepassword"
-}
-
-Response:
-{
-  "message": "Login successful",
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": { ... }
-}
-```
-
-#### Get All Users
-```http
-GET /api/auth/
-```
-
-#### Get User by ID
-```http
-GET /api/auth/:id
-```
-
-#### Update User
-```http
-PUT /api/auth/:id
-Content-Type: application/json
-
-{
-  "name": "Jane Doe",
-  "email": "jane@example.com"
-}
-```
-
-#### Delete User
-```http
-DELETE /api/auth/:id
-```
-
-#### Block/Unblock User
-```http
-PATCH /api/auth/:id/block
-Content-Type: application/json
-
-{
-  "blocked": 0  // 0 = blocked, 1 = active
-}
-```
-
-### IP Management Endpoints
-
-#### Get All IPs
-```http
-GET /api/ips/
-```
-
-#### Get IP by ID
-```http
-GET /api/ips/:id
-```
-
-#### Get IPs by User ID
-```http
-GET /api/ips/user/:userId
-```
-
-#### Create IP Entry
-```http
-POST /api/ips/
-Content-Type: application/json
-
-{
-  "userId": "john@example.com",
-  "ip": "192.168.1.100"
-}
-```
-
-#### Update IP
-```http
-PUT /api/ips/:id
-Content-Type: application/json
-
-{
-  "userId": "john@example.com",
-  "ip": "192.168.1.101"
-}
-```
-
-#### Delete IP
-```http
-DELETE /api/ips/:id
-```
-
-### Settings Management Endpoints
-
-#### Get All Settings
-```http
-GET /api/settings/
-```
-
-#### Get Setting by ID
-```http
-GET /api/settings/:id
-```
-
-#### Get Setting by Key
-```http
-GET /api/settings/key/:key
-```
-
-#### Create Setting
-```http
-POST /api/settings/
-Content-Type: application/json
-
-{
-  "key": "max_login_attempts",
-  "value": "5"
-}
-```
-
-#### Update Setting
-```http
-PUT /api/settings/:id
-Content-Type: application/json
-
-{
-  "key": "max_login_attempts",
-  "value": "10"
-}
-```
-
-#### Delete Setting
-```http
-DELETE /api/settings/:id
-```
-
-## Authentication
-
-Protected routes require a JWT token in the Authorization header:
-
-```http
-Authorization: Bearer <your-jwt-token>
-```
-
-The `authenticateToken` middleware is available in `utils/auth.middleware.js` and can be applied to any route that needs protection.
-
-## Database Schema
-
-### Users Table
-```sql
-CREATE TABLE users (
-    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    password VARCHAR(100) NOT NULL,
-    blocked INT DEFAULT 1,  -- 1 = active, 0 = blocked
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### IPs Table
-```sql
-CREATE TABLE ips (
-    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user VARCHAR(100) NOT NULL,
-    ip VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Settings Table
-```sql
-CREATE TABLE settings (
-    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    key VARCHAR(100) NOT NULL,
-    value VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+Signing and verification always use the same secret resolution
+(`JWT_ADMIN_SECRET → JWT_SECRET → default`), so a `.env` that only defines `JWT_SECRET` works.
 
 ## Project Structure
 
 ```
-TailorResumeAuthServer/
-├── controllers/
-│   ├── auth.controller.js      # Authentication & user management logic
-│   ├── ip.controller.js         # IP management logic
-│   └── settings.controller.js   # Settings management logic
-├── database/
-│   ├── db.js                    # Database connection pool
-│   ├── model.js                 # Database queries
-│   └── setup.js                 # Database initialization
-├── routers/
-│   ├── auth.router.js           # Auth routes
-│   ├── ip.router.js             # IP routes
-│   └── settings.router.js       # Settings routes
-├── utils/
-│   ├── auth.middleware.js       # Authentication & validation middleware
-│   └── utils.js                 # Utility functions
-├── .env                         # Environment variables (not in git)
-├── .env.example                 # Example environment variables
-├── index.js                     # Application entry point
-├── package.json                 # Project dependencies
-└── README.md                    # This file
+index.js                  Bootstrap: env, optional startup auth, schema setup, listen, graceful shutdown
+app.js                    Express app factory (middleware, routers, static dashboard, error handler)
+config/
+  env.js                  Loads .env or the embedded production config
+  auth.js                 JWT secrets/signing + password hashing
+  passport.js             admin-jwt / user-jwt / jwt strategies
+  constants.js            Shared enums (industries, history actions, setting keys, pagination)
+  gpt-models.js           Selectable model catalog with pricing
+controllers/              One module per resource, thin request/response handling
+routers/                  Route tables and auth middleware per resource
+database/
+  db.js                   Connection pool
+  setup.js                Idempotent schema (CREATE/ALTER/INDEX IF NOT EXISTS)
+  model.js                Facade re-exporting database/models/*
+  models/                 SQL per table (users, settings, configs, jobs, block-list, history, ...)
+utils/
+  auth.middleware.js      Validation + passport wrappers + allowed-email guard
+  history.js              logHistory(req, {...}) audit helper (never throws)
+  url.utils.js            Job URL normalisation (duplicate / block matching)
+  date.utils.js, utils.js, ip.utils.js, startup-auth.js
+scripts/                  CLI helpers (bid import, password hash)
+frontend/                 React dashboard source (built into public/)
+public/                   Built dashboard served by Express
 ```
 
-## Security Features
+## API Overview
 
-- **Password Hashing**: Passwords are hashed using bcrypt with salt rounds
-- **JWT Authentication**: Secure token-based authentication
-- **Input Validation**: Request validation middleware
-- **CORS**: Configured for cross-origin requests
-- **Environment Variables**: Sensitive data stored in .env
-- **User Blocking**: Ability to block/unblock user accounts
+Three token families exist, each verified by its own Passport strategy:
 
-## Error Handling
+| Prefix        | Login endpoint            | Used by                    | Middleware          |
+| ------------- | ------------------------- | -------------------------- | ------------------- |
+| `/api/admin`  | `POST /api/admin/login`   | Dashboard (admins only)    | `authenticateAdmin` |
+| `/api/user`   | `POST /api/user/login`    | Client application         | `authenticateUser`  |
+| `/api/auth`   | `POST /api/auth/login`    | Legacy clients             | `authenticate`      |
 
-All endpoints return consistent error responses:
+Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "message" }`.
 
-```json
+| Resource         | Endpoints                                                                                          | Auth                          |
+| ---------------- | -------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Health           | `GET /api/health`                                                                                  | public                        |
+| Admin auth       | `POST /api/admin/login`, `POST /api/admin/register`, `GET /api/admin/verify`                       | public / admin                |
+| User auth        | `POST /api/user/login`, `POST /api/user/register`, `GET /api/user/verify`, `GET|POST /api/user/assembly-token` | public / user / legacy |
+| Users (legacy)   | `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/auth/verify`, `GET /api/auth/`, `GET|PUT|DELETE /api/auth/:id`, `PATCH /api/auth/:id/block` | public / admin |
+| IP lookup        | `GET /api/ips/lookup/:ip`                                                                          | public                        |
+| Jobs             | `GET|POST /api/jobs`, `GET /api/jobs/today`, `DELETE /api/jobs/by-date?date=YYYY-MM-DD`, `GET|PUT|DELETE /api/jobs/:id` | public |
+| Block list       | `GET|POST /api/block-list`, `GET|PUT|DELETE /api/block-list/:id`                                   | public                        |
+| User configs     | `GET /api/config/all`, `POST /api/config/{prompt,resume,template,folder}`, `GET /api/config/{prompt,resume,template,folder}/:email`, `GET|DELETE /api/config/:email` | public |
+| GPT              | `GET /api/gpt/models`, `GET|POST /api/gpt/selected`, `GET|POST /api/gpt/apikey`, `POST /api/gpt/responses` | admin (selected GET + responses public) |
+| Settings         | `GET|POST /api/settings`, `GET /api/settings/key/:key`, `GET|PUT|DELETE /api/settings/:id`         | legacy + allowed email        |
+| History          | `GET /api/history`, `GET /api/history/:id`                                                         | admin                         |
+| Allowed emails   | `GET|POST /api/allowed-emails`, `GET|PUT|DELETE /api/allowed-emails/:id`                           | admin                         |
+| Assembly tokens  | `GET|POST /api/assembly-tokens`, `GET|PUT|DELETE /api/assembly-tokens/:id`                         | admin                         |
+
+### Jobs
+
+`GET /api/jobs` accepts `date` (YYYY-MM-DD), `industry` (`0` software, `1` civil), `search`
+(matches title, company, tech, summary and description), `page`, `limit` (max 10000) and
+`orderDirection` (`ASC`/`DESC`). It returns `{ jobs, pagination: { page, limit, total, totalPages } }`.
+
+```http
+POST /api/jobs
+Content-Type: application/json
+
 {
-  "error": "Error message here"
+  "title": "Senior Developer",        // required
+  "company": "Tech Corp",             // required
+  "date": "2026-09-25",               // required
+  "industry": 0,                      // optional, 0 = software (default), 1 = civil
+  "tech": "React, Node.js",
+  "url": "https://example.com/job/1", // validated and normalised for duplicate/block checks
+  "summary": "Two sentences about the role",
+  "description": "Full posting text"
 }
 ```
 
-HTTP Status Codes:
-- `200`: Success
-- `201`: Created
-- `400`: Bad Request
-- `401`: Unauthorized
-- `403`: Forbidden
-- `404`: Not Found
-- `500`: Internal Server Error
+Jobs whose company or URL matches the block list are rejected with `403`.
 
-## Development
+### GPT model
 
-For development with auto-reload:
+`GET /api/gpt/models` returns `{ models: [{ id, name, family, pricing: { input, cached, output }, description }] }`
+(prices in USD per 1M tokens). The selected model is stored in the `settings` table under
+`selected_gpt_model` and read by the client through the public `GET /api/gpt/selected`.
+
+## Database
+
+The schema is created and migrated automatically on start-up (`database/setup.js`); every
+statement is idempotent, so existing data is never touched. Tables: `users`, `settings`,
+`user_configs`, `jobs` (incl. `industry` and `summary` columns added via
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS`), `block_list`, `history`, `allowed_emails`,
+`assembly_tokens`. Indexes cover the hot paths (`jobs(date, industry)`, `history(created_at)`,
+`history(user_id)`).
+
+## Building the Executable
 
 ```bash
-npm run dev
+cp config/production.config.template.js config/production.config.js   # fill in real values
+npm run frontend:build
+npm run build:win          # dist/TailorResumeAuthServer-win.exe (also build:linux / build:mac / build:all)
 ```
 
-## Building Production Executable
+Icon and version metadata live in `resources/` and `pkg-config.json` (see `resources/README.md`).
 
-Build standalone executables with custom icon and metadata using PKG:
+## Operations
 
-### Quick Start
-
-**Windows**: Double-click `build-with-icon.bat`
-
-**Or use npm scripts**:
-```bash
-# Build Windows executable with icon
-npm run build:win
-
-# Build for all platforms
-npm run build:all
-```
-
-### Icon and Metadata
-
-The production executable includes:
-- ⚙️ Custom gears icon
-- 📄 File description and version info
-- © Copyright: "Copyright (C) 2024 TailorResume. All rights reserved."
-- 🏢 Company: TailorResume
-- 📌 Product: TailorResume Auth Server v1.0.0
-
-**First-time setup**: Convert `resources/icon.svg` to `resources/icon.ico` (see [QUICK_START_ICON.md](QUICK_START_ICON.md))
-
-**Documentation**:
-- Quick guide: [QUICK_START_ICON.md](QUICK_START_ICON.md)
-- Detailed guide: [BUILD_WITH_ICON.md](BUILD_WITH_ICON.md)
-- Full documentation: [ICON_AND_METADATA.md](ICON_AND_METADATA.md)
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+- `GET /api/health` reports database connectivity (`503` when the database is unreachable).
+- Hashed dashboard assets are served with immutable caching; `index.html` is always revalidated.
+- `SIGINT` / `SIGTERM` trigger a graceful shutdown (in-flight requests finish, pool is closed).
+- Every mutating request is written to the `history` table with the acting user and client IP.
 
 ## License
 
-Copyright (C) 2024 TailorResume. All rights reserved.
-
-This software is proprietary and confidential.
-
-## Support
-
-For issues and questions, please open an issue on the repository.
+Copyright (C) 2024 TailorResume. All rights reserved. This software is proprietary and confidential.

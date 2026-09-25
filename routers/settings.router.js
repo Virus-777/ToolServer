@@ -1,19 +1,21 @@
 const express = require('express');
 const { getSettings, getSetting, getSettingByKey, createSetting, updateSetting, deleteSetting } = require('../controllers/settings.controller');
-const { authenticate } = require('../utils/auth.middleware');
+const { authenticate, requireAllowedEmail } = require('../utils/auth.middleware');
 const router = express.Router();
 
-// All settings routes require authentication
+// All settings routes require authentication and an email on the allowed list
+router.use(authenticate, requireAllowedEmail);
+
 router.route('/')
-    .get(authenticate, getSettings)
-    .post(authenticate, createSetting);
+    .get(getSettings)
+    .post(createSetting);
 
 router.route('/key/:key')
-    .get(authenticate, getSettingByKey);
+    .get(getSettingByKey);
 
 router.route('/:id')
-    .get(authenticate, getSetting)
-    .put(authenticate, updateSetting)
-    .delete(authenticate, deleteSetting);
+    .get(getSetting)
+    .put(updateSetting)
+    .delete(deleteSetting);
 
 module.exports = router;

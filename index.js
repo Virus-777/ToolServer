@@ -1,118 +1,73 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const path = require('path');
-const morgan = require('morgan');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+'use strict';
 
-// Main startup function
-(async () => {
-    // Load environment variables (works in both dev and pkg)
-    const { loadEnvironment } = require('./config/env');
+const { loadEnvironment } = require('./config/env');
+
+const SHUTDOWN_TIMEOUT_MS = 10000;
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection:', reason);
+});
+
+async function start() {
+    // Works both in development (.env) and inside the pkg executable (embedded config)
     if (!loadEnvironment()) {
         console.error('❌ Failed to load environment variables');
         console.error('❌ Please create a .env file with database configuration');
         process.exit(1);
     }
 
-    // Startup authentication check
-    // const { authenticateStartup } = require('./utils/startup-auth');
-    // const startupPassword = process.env.STARTUP_PASSWORD || '';
-    // const isHashed = process.env.STARTUP_PASSWORD_HASHED === 'true';
-    // const maxAttempts = parseInt(process.env.STARTUP_MAX_ATTEMPTS || '3', 10);
+    // Optional interactive password prompt (see utils/startup-auth.js)
+    if (process.env.STARTUP_AUTH_ENABLED === 'true') {
+        const { authenticateStartup } = require('./utils/startup-auth');
+        const authenticated = await authenticateStartup(
+            process.env.STARTUP_PASSWORD || '',
+            process.env.STARTUP_PASSWORD_HASHED === 'true',
+            parseInt(process.env.STARTUP_MAX_ATTEMPTS || '3', 10)
+        );
+        if (!authenticated) {
+            console.error('❌ Startup authentication failed');
+            process.exit(1);
+        }
+    }
 
-    // const authenticated = await authenticateStartup(startupPassword, isHashed, maxAttempts);
-
-    // if (!authenticated) {
-    //     console.error('❌ Startup authentication failed');
-    //     process.exit(1);
-    // }
-
-    const passport = require('./config/passport');
-    const authRouter = require('./routers/auth.router');
-    const adminAuthRouter = require('./routers/admin-auth.router');
-    const userAuthRouter = require('./routers/user-auth.router');
-    const ipLookupRouter = require('./routers/ip-lookup.router');
-    const gptRouter = require('./routers/gpt.router');
-    const configRouter = require('./routers/config.router');
-    const jobRouter = require('./routers/job.router');
-    const settingsRouter = require('./routers/settings.router');
-    const blockListRouter = require('./routers/block-list.router');
-    const historyRouter = require('./routers/history.router');
-    const allowedEmailRouter = require('./routers/allowed-email.router');
-    const assemblyTokenRouter = require('./routers/assembly-token.router');
+    // Modules below read process.env, so they are required only after the environment is loaded
     const { setupDatabase } = require('./database/setup');
+    const { createApp } = require('./app');
+    const db = require('./database/db');
 
-    const app = express();
-    const PORT = process.env.PORT || 8085;
+    try {
+        await setupDatabase();
+    } catch (err) {
+        console.error('Failed to setup database:', err.message);
+        process.exit(1);
+    }
 
-    // Initialize Passport
-    app.use(passport.initialize());
-
-    // Middleware
-    app.use(morgan('dev')); // HTTP request logger
-    app.use(bodyParser.urlencoded({ extended: true, limit: '500kb'}));
-    app.use(bodyParser.json({ limit: '500kb' }));
-    app.use(cors());
-
-    // Serve static files from public directory
-    app.use(express.static(path.join(__dirname, 'public')));
-
-    // API Routes
-    app.use('/api/auth', authRouter); // Legacy auth routes
-    app.use('/api/admin', adminAuthRouter); // Admin authentication routes
-    app.use('/api/user', userAuthRouter); // User authentication routes
-    app.use('/api/ips', ipLookupRouter);
-    app.use('/api/gpt', gptRouter);
-    app.use('/api/config', configRouter);
-    app.use('/api/jobs', jobRouter);
-    app.use('/api/settings', settingsRouter);
-    app.use('/api/block-list', blockListRouter);
-    app.use('/api/history', historyRouter);
-    app.use('/api/allowed-emails', allowedEmailRouter);
-    app.use('/api/assembly-tokens', assemblyTokenRouter);
-    
-    // 404 handler for unmatched API routes
-    app.use('/api', (req, res) => {
-        res.status(404).json({ error: 'Route not found' });
+    const port = Number(process.env.PORT) || 8085;
+    const server = createApp().listen(port, () => {
+        console.log(`🚀 Server is running on port ${port}`);
     });
 
-    // Serve the React app for all non-API routes (client-side routing)
-    // Use app.use() instead of app.get('*') for Express 5 compatibility
-    app.use((req, res) => {
-        // Serve index.html for all other routes (React Router will handle routing)
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    });
-
-    // Error handling middleware
-    app.use((err, req, res, next) => {
-        console.error(err.stack);
-        res.status(500).json({ error: 'Something went wrong!' });
-    });
-
-    // Initialize database and start server
-    setupDatabase().then(() => {
-        const server = app.listen(PORT, () => {
-            console.log(`🚀 Server is running on port ${PORT}`);
-        });
-        
-        // Handle server errors
-        server.on('error', (err) => {
-            console.error('Server error:', err);
-        });
-        
-        // Handle uncaught exceptions
-        process.on('uncaughtException', (err) => {
-            console.error('Uncaught Exception:', err);
-        });
-        
-        // Handle unhandled promise rejections
-        process.on('unhandledRejection', (reason, promise) => {
-            console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-        });
-        
-    }).catch(err => {
-        console.error('Failed to setup database:', err);
+    server.on('error', (err) => {
+        console.error('Server error:', err);
         process.exit(1);
     });
-})();
+
+    // Finish in-flight requests and release database connections before exiting
+    const shutdown = (signal) => {
+        console.log(`\n${signal} received, shutting down...`);
+        server.close(async () => {
+            await db.end().catch(() => {});
+            process.exit(0);
+        });
+        setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS).unref();
+    };
+
+    process.once('SIGINT', () => shutdown('SIGINT'));
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+}
+
+start();

@@ -1,158 +1,102 @@
+'use strict';
+
 const model = require('../database/model');
 const { handleError } = require('../utils/utils');
-const { getClientIP } = require('../utils/ip.utils');
+const { logHistory } = require('../utils/history');
+const { HISTORY_ACTIONS, HISTORY_ENTITIES, PROTECTED_SETTING_KEYS } = require('../config/constants');
+
+// Metadata keeps only a preview of the value to avoid bloating the audit log
+const previewValue = (value) => String(value).substring(0, 100);
 
 exports.getSettings = async (req, res) => {
     try {
-        // Check if requester email is in allowed list
-        if (req.user && req.user.email) {
-            const isEmailAllowed = await model.isEmailAllowed(req.user.email);
-            if (!isEmailAllowed) {
-                return handleError(res, 403, 'Your email is not in the allowed list. Please contact an administrator.');
-            }
-        }
-
         const settings = await model.getSettings();
 
-        // Filter out sensitive settings (managed in dedicated pages)
-        const hiddenKeys = ['openai_api_key', 'selected_gpt_model'];
-        const visibleSettings = settings.filter(setting => !hiddenKeys.includes(setting.key));
+        // Sensitive settings are managed on dedicated pages
+        const visibleSettings = settings.filter((setting) => !PROTECTED_SETTING_KEYS.includes(setting.key));
 
-        console.log(visibleSettings);
-
-        res.status(200).json({
-            settings: visibleSettings
-        });
+        res.status(200).json({ settings: visibleSettings });
     } catch (error) {
         console.error('Get settings error:', error);
         handleError(res, 500, 'Error fetching settings');
     }
-}
+};
 
 exports.getSetting = async (req, res) => {
     const { id } = req.params;
 
     try {
-        // Check if requester email is in allowed list
-        if (req.user && req.user.email) {
-            const isEmailAllowed = await model.isEmailAllowed(req.user.email);
-            if (!isEmailAllowed) {
-                return handleError(res, 403, 'Your email is not in the allowed list. Please contact an administrator.');
-            }
-        }
-
         const setting = await model.getSettingById(id);
-
         if (!setting) {
             return handleError(res, 404, 'Setting not found');
         }
 
-        res.status(200).json({
-            setting
-        });
+        res.status(200).json({ setting });
     } catch (error) {
         console.error('Get setting error:', error);
         handleError(res, 500, 'Error fetching setting');
     }
-}
+};
 
 exports.getSettingByKey = async (req, res) => {
     const { key } = req.params;
 
     try {
-        // Check if requester email is in allowed list
-        if (req.user && req.user.email) {
-            const isEmailAllowed = await model.isEmailAllowed(req.user.email);
-            if (!isEmailAllowed) {
-                return handleError(res, 403, 'Your email is not in the allowed list. Please contact an administrator.');
-            }
-        }
-
         const setting = await model.getSettingByKey(key);
-
         if (!setting) {
             return handleError(res, 404, 'Setting not found');
         }
 
-        res.status(200).json({
-            setting
-        });
+        res.status(200).json({ setting });
     } catch (error) {
         console.error('Get setting by key error:', error);
         handleError(res, 500, 'Error fetching setting');
     }
-}
+};
 
 exports.createSetting = async (req, res) => {
     const { key, value } = req.body;
 
     try {
-        // Check if requester email is in allowed list
-        if (req.user && req.user.email) {
-            const isEmailAllowed = await model.isEmailAllowed(req.user.email);
-            if (!isEmailAllowed) {
-                return handleError(res, 403, 'Your email is not in the allowed list. Please contact an administrator.');
-            }
-        }
-
         if (!key || !value) {
             return handleError(res, 400, 'Key and value are required');
         }
 
-        // Check if key already exists
-        const existingSetting = await model.getSettingByKey(key);
-        if (existingSetting) {
+        if (await model.getSettingByKey(key)) {
             return handleError(res, 400, 'Setting with this key already exists');
         }
 
         const newSetting = await model.createSetting(key, value);
 
-        // Log history
-        const userId = req.user ? req.user.id : null;
-        const userEmail = req.user ? req.user.email : null;
-        const clientIP = getClientIP(req);
-        await model.createHistoryLog(
-            userId,
-            userEmail,
-            'create',
-            'setting',
-            newSetting.id,
-            `Setting created: ${key}`,
-            clientIP,
-            { key, value: value.substring(0, 100) } // Limit value length in metadata
-        );
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.CREATE,
+            entity: HISTORY_ENTITIES.SETTING,
+            entityId: newSetting.id,
+            description: `Setting created: ${key}`,
+            metadata: { key, value: previewValue(value) },
+        });
 
         res.status(201).json({
             message: 'Setting created successfully',
-            setting: newSetting
+            setting: newSetting,
         });
     } catch (error) {
         console.error('Create setting error:', error);
         handleError(res, 500, 'Error creating setting');
     }
-}
+};
 
 exports.updateSetting = async (req, res) => {
     const { id } = req.params;
     const { key, value } = req.body;
 
     try {
-        // Check if requester email is in allowed list
-        if (req.user && req.user.email) {
-            const isEmailAllowed = await model.isEmailAllowed(req.user.email);
-            if (!isEmailAllowed) {
-                return handleError(res, 403, 'Your email is not in the allowed list. Please contact an administrator.');
-            }
-        }
-
         const existingSetting = await model.getSettingById(id);
         if (!existingSetting) {
             return handleError(res, 404, 'Setting not found');
         }
 
-        // Prevent updating protected settings
-        const protectedKeys = ['openai_api_key', 'selected_gpt_model'];
-        if (protectedKeys.includes(existingSetting.key)) {
+        if (PROTECTED_SETTING_KEYS.includes(existingSetting.key)) {
             return handleError(res, 403, 'This setting cannot be edited here. Please use the dedicated page.');
         }
 
@@ -160,40 +104,29 @@ exports.updateSetting = async (req, res) => {
             return handleError(res, 400, 'Key and value are required');
         }
 
-        // Check if new key is already taken by another setting
-        if (key !== existingSetting.key) {
-            const keyTaken = await model.getSettingByKey(key);
-            if (keyTaken) {
-                return handleError(res, 400, 'Key already in use');
-            }
+        if (key !== existingSetting.key && (await model.getSettingByKey(key))) {
+            return handleError(res, 400, 'Key already in use');
         }
 
         const updatedSetting = await model.updateSetting(id, key, value);
 
-        // Log history
-        const userId = req.user ? req.user.id : null;
-        const userEmail = req.user ? req.user.email : null;
-        const clientIP = getClientIP(req);
-        await model.createHistoryLog(
-            userId,
-            userEmail,
-            'update',
-            'setting',
-            id,
-            `Setting updated: ${key}`,
-            clientIP,
-            { key, value: value.substring(0, 100) } // Limit value length in metadata
-        );
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.UPDATE,
+            entity: HISTORY_ENTITIES.SETTING,
+            entityId: id,
+            description: `Setting updated: ${key}`,
+            metadata: { key, value: previewValue(value) },
+        });
 
         res.status(200).json({
             message: 'Setting updated successfully',
-            setting: updatedSetting
+            setting: updatedSetting,
         });
     } catch (error) {
         console.error('Update setting error:', error);
         handleError(res, 500, 'Error updating setting');
     }
-}
+};
 
 exports.deleteSetting = async (req, res) => {
     const { id } = req.params;
@@ -204,34 +137,23 @@ exports.deleteSetting = async (req, res) => {
             return handleError(res, 404, 'Setting not found');
         }
 
-        // Prevent deleting protected settings
-        const protectedKeys = ['openai_api_key', 'selected_gpt_model'];
-        if (protectedKeys.includes(setting.key)) {
+        if (PROTECTED_SETTING_KEYS.includes(setting.key)) {
             return handleError(res, 403, 'This setting cannot be deleted here. Please use the dedicated page.');
         }
 
         await model.deleteSetting(id);
 
-        // Log history
-        const userId = req.user ? req.user.id : null;
-        const userEmail = req.user ? req.user.email : null;
-        const clientIP = getClientIP(req);
-        await model.createHistoryLog(
-            userId,
-            userEmail,
-            'delete',
-            'setting',
-            id,
-            `Setting deleted: ${setting.key}`,
-            clientIP,
-            { key: setting.key }
-        );
-
-        res.status(200).json({
-            message: 'Setting deleted successfully'
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.DELETE,
+            entity: HISTORY_ENTITIES.SETTING,
+            entityId: id,
+            description: `Setting deleted: ${setting.key}`,
+            metadata: { key: setting.key },
         });
+
+        res.status(200).json({ message: 'Setting deleted successfully' });
     } catch (error) {
         console.error('Delete setting error:', error);
         handleError(res, 500, 'Error deleting setting');
     }
-}
+};

@@ -1,236 +1,177 @@
+'use strict';
+
 const model = require('../database/model');
-const { handleError } = require('../utils/utils');
-const { getClientIP } = require('../utils/ip.utils');
+const { handleError, parsePagination, isValidUrl, emptyToNull } = require('../utils/utils');
+const { isIsoDate, todayInTimeZone } = require('../utils/date.utils');
+const { logHistory } = require('../utils/history');
+const { INDUSTRY, INDUSTRY_VALUES, HISTORY_ACTIONS, HISTORY_ENTITIES, PAGINATION, JOBS_TIME_ZONE } = require('../config/constants');
 
-// Job industry categories
-const INDUSTRY_SOFTWARE = 0;
-const INDUSTRY_CIVIL = 1;
+const INVALID_INDUSTRY_MESSAGE = 'Invalid industry. Expected 0 (software) or 1 (civil)';
 
-// Returns the normalized industry value, or null when it is not a valid category
+const isBlank = (value) => value === undefined || value === null || value === '';
+
+/** Normalised industry value, or null when it is not a valid category. */
 const parseIndustry = (value) => {
-    if (value === undefined || value === null || value === '') {
+    if (isBlank(value)) {
         return null;
     }
-    const parsed = parseInt(value);
-    if (parsed !== INDUSTRY_SOFTWARE && parsed !== INDUSTRY_CIVIL) {
-        return null;
-    }
-    return parsed;
-}
+    const parsed = parseInt(value, 10);
+    return INDUSTRY_VALUES.includes(parsed) ? parsed : null;
+};
+
+/** Pick and normalise the writable job fields from a request body. */
+const readJobFields = (body) => ({
+    title: body.title,
+    company: body.company,
+    date: body.date,
+    tech: body.tech,
+    url: body.url,
+    summary: emptyToNull(body.summary),
+    description: body.description,
+});
 
 exports.getJobs = async (req, res) => {
     try {
-        const { date, page = 1, limit = 20, search, orderDirection = 'ASC', industry } = req.query;
-        const result = await model.getJobs(date, page, limit, search, orderDirection, parseIndustry(industry));
+        const { date, search, orderDirection = 'ASC', industry } = req.query;
+        const { page, limit } = parsePagination(req.query, {
+            defaultLimit: PAGINATION.JOBS_DEFAULT_LIMIT,
+            maxLimit: PAGINATION.MAX_LIMIT,
+        });
+
+        const result = await model.getJobs({
+            date,
+            page,
+            limit,
+            search,
+            orderDirection,
+            industry: parseIndustry(industry),
+        });
 
         res.status(200).json({
             jobs: result.jobs,
-            pagination: result.pagination
+            pagination: result.pagination,
         });
     } catch (error) {
         console.error('Get jobs error:', error);
         handleError(res, 500, 'Error fetching jobs');
     }
-}
+};
 
 exports.getTodayJobs = async (req, res) => {
     try {
-        // Get today's date in PST/PDT timezone in YYYY-MM-DD format
-        const now = new Date();
-        // Convert to PST/PDT (America/Los_Angeles timezone)
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/Los_Angeles',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-        });
-        const parts = formatter.formatToParts(now);
-        const year = parts.find(part => part.type === 'year').value;
-        const month = parts.find(part => part.type === 'month').value;
-        const day = parts.find(part => part.type === 'day').value;
-        const isoDate = `${year}-${month}-${day}`;
+        const isoDate = todayInTimeZone(JOBS_TIME_ZONE);
         const jobs = await model.getJobsByDate(isoDate, parseIndustry(req.query.industry));
-
-        console.log(isoDate);
 
         res.status(200).json({
             date: isoDate,
             jobs,
-            count: jobs.length
+            count: jobs.length,
         });
     } catch (error) {
         console.error('Get today jobs error:', error);
-        handleError(res, 500, 'Error fetching today\'s jobs');
+        handleError(res, 500, "Error fetching today's jobs");
     }
-}
+};
 
 exports.getJob = async (req, res) => {
     const { id } = req.params;
 
     try {
         const job = await model.getJobById(id);
-
         if (!job) {
             return handleError(res, 404, 'Job not found');
         }
 
-        res.status(200).json({
-            job
-        });
+        res.status(200).json({ job });
     } catch (error) {
         console.error('Get job error:', error);
         handleError(res, 500, 'Error fetching job');
     }
-}
+};
 
 exports.createJob = async (req, res) => {
-    const { title, company, tech, url, description, date, industry } = req.body;
+    const fields = readJobFields(req.body);
+    const { industry } = req.body;
 
-    // Validate required fields
-    if (!title || !company || !date) {
+    if (!fields.title || !fields.company || !fields.date) {
         return handleError(res, 400, 'Title, company and date are required');
     }
 
-    // Validate industry (0 = software, 1 = civil), defaults to software
-    if (industry !== undefined && industry !== null && industry !== '' && parseIndustry(industry) === null) {
-        return handleError(res, 400, 'Invalid industry. Expected 0 (software) or 1 (civil)');
+    // Industry defaults to software when omitted
+    if (!isBlank(industry) && parseIndustry(industry) === null) {
+        return handleError(res, 400, INVALID_INDUSTRY_MESSAGE);
     }
-    const jobIndustry = parseIndustry(industry) ?? INDUSTRY_SOFTWARE;
+    const jobIndustry = parseIndustry(industry) ?? INDUSTRY.SOFTWARE;
 
-    // Validate URL format if provided
-    if (url) {
-        try {
-            new URL(url); // Validate URL format
-        } catch (urlError) {
-            return handleError(res, 400, 'Invalid URL format');
-        }
-
-        // Check if URL already exists using normalized URL
-        // const existingJob = await model.getJobByUrl(url);
-        // if (existingJob) {
-        //     return handleError(res, 409, 'Job with this URL already exists');
-        // }
-    }
-
-    // Check if company or URL is in block list
-    const isBlocked = await model.isBlocked(company, url);
-    if (isBlocked) {
-        return handleError(res, 403, 'This job is blocked. Company name or URL is in the block list.');
-    }
-
-    const newJob = await model.createJob(title, company, tech, url, description, date, jobIndustry);
-
-    // Log history
-    const userId = req.user ? req.user.id : null;
-    const userEmail = req.user ? req.user.email : null;
-    const clientIP = getClientIP(req);
-    await model.createHistoryLog(
-        userId,
-        userEmail,
-        'create',
-        'job',
-        newJob.id,
-        `Job created: ${title} at ${company}`,
-        clientIP,
-        { job_id: newJob.id, company, url, industry: jobIndustry }
-    );
-
-    return res.status(201).json({
-        message: 'Job created successfully',
-        job: newJob
-    });
-}
-
-exports.deleteJobsByDate = async (req, res) => {
-    const date = req.query.date || req.body.date;
-
-    if (!date) {
-        return handleError(res, 400, 'Date is required');
-    }
-
-    // Validate date format (YYYY-MM-DD)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        return handleError(res, 400, 'Invalid date format. Expected YYYY-MM-DD');
+    if (fields.url && !isValidUrl(fields.url)) {
+        return handleError(res, 400, 'Invalid URL format');
     }
 
     try {
-        const deletedJobs = await model.deleteJobsByDate(date);
+        if (await model.isBlocked(fields.company, fields.url)) {
+            return handleError(res, 403, 'This job is blocked. Company name or URL is in the block list.');
+        }
 
-        // Log history
-        const userId = req.user ? req.user.id : null;
-        const userEmail = req.user ? req.user.email : null;
-        const clientIP = getClientIP(req);
-        await model.createHistoryLog(
-            userId,
-            userEmail,
-            'delete',
-            'job',
-            null,
-            `Deleted ${deletedJobs.length} job(s) for date ${date}`,
-            clientIP,
-            { date, count: deletedJobs.length }
-        );
+        const newJob = await model.createJob({ ...fields, industry: jobIndustry });
 
-        res.status(200).json({
-            message: `Deleted ${deletedJobs.length} job(s) for ${date}`,
-            date,
-            count: deletedJobs.length
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.CREATE,
+            entity: HISTORY_ENTITIES.JOB,
+            entityId: newJob.id,
+            description: `Job created: ${fields.title} at ${fields.company}`,
+            metadata: { job_id: newJob.id, company: fields.company, url: fields.url, industry: jobIndustry },
+        });
+
+        res.status(201).json({
+            message: 'Job created successfully',
+            job: newJob,
         });
     } catch (error) {
-        console.error('Delete jobs by date error:', error);
-        handleError(res, 500, 'Error deleting jobs for date');
+        console.error('Create job error:', error);
+        handleError(res, 500, 'Error creating job');
     }
-}
+};
 
 exports.updateJob = async (req, res) => {
     const { id } = req.params;
-    const { title, company, date, tech, url, description, industry } = req.body;
+    const fields = readJobFields(req.body);
+    const { industry } = req.body;
 
     try {
-        // Check if job exists
         const existingJob = await model.getJobById(id);
         if (!existingJob) {
             return handleError(res, 404, 'Job not found');
         }
 
-        // Validate required fields
-        if (!title || !company || !date) {
+        if (!fields.title || !fields.company || !fields.date) {
             return handleError(res, 400, 'Title, company and date are required');
         }
 
-        // Validate industry (0 = software, 1 = civil), keeps the current value when omitted
-        if (industry !== undefined && industry !== null && industry !== '' && parseIndustry(industry) === null) {
-            return handleError(res, 400, 'Invalid industry. Expected 0 (software) or 1 (civil)');
+        // Industry keeps its current value when omitted
+        if (!isBlank(industry) && parseIndustry(industry) === null) {
+            return handleError(res, 400, INVALID_INDUSTRY_MESSAGE);
         }
-        const jobIndustry = parseIndustry(industry) ?? existingJob.industry ?? INDUSTRY_SOFTWARE;
+        const jobIndustry = parseIndustry(industry) ?? existingJob.industry ?? INDUSTRY.SOFTWARE;
 
-        // Update job
-        const updatedJob = await model.updateJob(id, title, company, date, tech, url, description, jobIndustry);
+        const updatedJob = await model.updateJob(id, { ...fields, industry: jobIndustry });
 
-        // Log history
-        const userId = req.user ? req.user.id : null;
-        const userEmail = req.user ? req.user.email : null;
-        const clientIP = getClientIP(req);
-        await model.createHistoryLog(
-            userId,
-            userEmail,
-            'update',
-            'job',
-            id,
-            `Job updated: ${title} at ${company}`,
-            clientIP,
-            { job_id: id, company, url, industry: jobIndustry }
-        );
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.UPDATE,
+            entity: HISTORY_ENTITIES.JOB,
+            entityId: id,
+            description: `Job updated: ${fields.title} at ${fields.company}`,
+            metadata: { job_id: id, company: fields.company, url: fields.url, industry: jobIndustry },
+        });
 
         res.status(200).json({
             message: 'Job updated successfully',
-            job: updatedJob
+            job: updatedJob,
         });
     } catch (error) {
         console.error('Update job error:', error);
         handleError(res, 500, 'Error updating job');
     }
-}
+};
 
 exports.deleteJob = async (req, res) => {
     const { id } = req.params;
@@ -243,26 +184,48 @@ exports.deleteJob = async (req, res) => {
 
         await model.deleteJob(id);
 
-        // Log history
-        const userId = req.user ? req.user.id : null;
-        const userEmail = req.user ? req.user.email : null;
-        const clientIP = getClientIP(req);
-        await model.createHistoryLog(
-            userId,
-            userEmail,
-            'delete',
-            'job',
-            id,
-            `Job deleted: ${job.title} at ${job.company}`,
-            clientIP,
-            { job_id: id, company: job.company }
-        );
-
-        res.status(200).json({
-            message: 'Job deleted successfully'
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.DELETE,
+            entity: HISTORY_ENTITIES.JOB,
+            entityId: id,
+            description: `Job deleted: ${job.title} at ${job.company}`,
+            metadata: { job_id: id, company: job.company },
         });
+
+        res.status(200).json({ message: 'Job deleted successfully' });
     } catch (error) {
         console.error('Delete job error:', error);
         handleError(res, 500, 'Error deleting job');
     }
-}
+};
+
+exports.deleteJobsByDate = async (req, res) => {
+    const date = req.query.date || (req.body && req.body.date);
+
+    if (!date) {
+        return handleError(res, 400, 'Date is required');
+    }
+    if (!isIsoDate(date)) {
+        return handleError(res, 400, 'Invalid date format. Expected YYYY-MM-DD');
+    }
+
+    try {
+        const deletedJobs = await model.deleteJobsByDate(date);
+
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.DELETE,
+            entity: HISTORY_ENTITIES.JOB,
+            description: `Deleted ${deletedJobs.length} job(s) for date ${date}`,
+            metadata: { date, count: deletedJobs.length },
+        });
+
+        res.status(200).json({
+            message: `Deleted ${deletedJobs.length} job(s) for ${date}`,
+            date,
+            count: deletedJobs.length,
+        });
+    } catch (error) {
+        console.error('Delete jobs by date error:', error);
+        handleError(res, 500, 'Error deleting jobs for date');
+    }
+};

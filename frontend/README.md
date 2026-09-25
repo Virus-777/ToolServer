@@ -1,69 +1,52 @@
-# Frontend - React + Vite + Tailwind CSS
+# Dashboard Frontend (React + Vite + Tailwind CSS)
 
-This is the frontend application for the TailorResume Admin Dashboard, built with React, Vite, and Tailwind CSS.
+Admin dashboard ("KingMaker") for the TailorResume Auth Server. The production build is
+written to `../public`, which the Express server serves, so the built files are committed.
 
-## Features
+## Development
 
-- **React 18** with modern hooks and context API
-- **Vite** for fast development and optimized builds
-- **Tailwind CSS** for styling
-- **React Router** for client-side routing
-- **Authentication** with JWT tokens
-- **Responsive Design** with Tailwind CSS
-
-## Setup
-
-1. Install dependencies:
 ```bash
-cd frontend
 npm install
+npm run dev        # http://localhost:3003, /api is proxied to http://localhost:8085
 ```
 
-2. Start development server:
-```bash
-npm run dev
-```
+Start the backend first (`npm run dev` in the repository root). Always open the app through
+the root URL and its routes (`/login`, `/users`, `/jobs`, …), never the source files directly.
 
-The development server will run on `http://localhost:3000` with proxy to the backend API at `http://localhost:8085`.
-
-## Build for Production
-
-Build the React app for production:
+## Production build
 
 ```bash
-npm run build
+npm run build      # or, from the repository root: npm run frontend:build
 ```
 
-This will output the built files to the `../public` directory, which will be served by the Express server.
+The API base URL is same-origin (`/api`) by default; set `VITE_API_BASE` (see `.env.example`)
+only when the API is hosted elsewhere.
 
-## Project Structure
+## Structure
 
 ```
-frontend/
-├── src/
-│   ├── components/      # Reusable components (Login, Sidebar, Modal)
-│   ├── contexts/        # React contexts (AuthContext)
-│   ├── pages/          # Page components (Users, GPT, Configs, Jobs)
-│   ├── services/        # API service functions
-│   ├── App.jsx         # Main app component with routing
-│   ├── main.jsx        # Entry point
-│   └── index.css       # Global styles with Tailwind
-├── index.html          # HTML template
-├── vite.config.js     # Vite configuration
-├── tailwind.config.js # Tailwind CSS configuration
-└── package.json        # Dependencies and scripts
+src/
+  App.jsx                 Routing, public vs. admin layout, code-split pages
+  components/
+    ui.jsx                Button, Input/Select/Textarea, FormField, Card, DataTable, Badge, Tabs, …
+    Modal.jsx             Modal + ConfirmModal (Escape / backdrop close, scroll lock)
+    Pagination.jsx        Pager with page-size selector
+    Sidebar.jsx           Navigation (responsive drawer on small screens)
+    Login.jsx
+  contexts/
+    AuthContext.jsx       Session state, token verification, auto-logout on 401
+    UIContext.jsx         useToast() notifications and promise-based useConfirm()
+  hooks/useDebouncedValue.js
+  pages/                  One file per route; pages/jobs/ holds the job tab, forms and block list
+  services/api.js         Fetch wrapper + typed API groups (UsersAPI, JobsAPI, …)
+  utils/format.js         Date / text helpers
 ```
 
-## Authentication Flow
+## Conventions
 
-1. **Login Page**: Shown when user is not authenticated
-2. **After Login**: Sidebar appears with all navigation links
-3. **Protected Routes**: Users and GPT pages require authentication
-4. **Public Routes**: Configs and Jobs pages are accessible without authentication
-
-## Development Notes
-
-- The frontend communicates with the backend API at `http://localhost:8085/api`
-- Authentication tokens are stored in localStorage
-- The app uses React Router for client-side routing
-- All styling is done with Tailwind CSS utility classes
+- Feedback goes through `useToast()`; destructive actions ask with `await confirm({...})`.
+- Tables are rendered with `DataTable` (`columns` describe headers and cell renderers).
+- Job dates (`YYYY-MM-DD`) are treated as plain strings; never pass them through `new Date()`
+  for display or editing, it shifts the day in negative UTC offsets.
+- Authentication: the Users, GPT, History, Allowed Emails and Assembly Tokens pages require an
+  admin session; Jobs and User Configs are reachable without logging in (by design).

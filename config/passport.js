@@ -1,92 +1,57 @@
+'use strict';
+
 const passport = require('passport');
-const JwtStrategy = require('passport-jwt').Strategy;
-const ExtractJwt = require('passport-jwt').ExtractJwt;
+const { Strategy: JwtStrategy, ExtractJwt } = require('passport-jwt');
 const model = require('../database/model');
+const { getSecrets } = require('./auth');
+const { USER_ROLES, USER_STATUS } = require('./constants');
 
-// Admin JWT Strategy
-const adminOpts = {
-    jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: process.env.JWT_ADMIN_SECRET || '75b97d33464a2b2474421f0e033fb23a6bb198f0d5ac63609e000c32443759e73b49e80596ca279e712a5443f0fa967ec0beafef5382fd85a5d91d862a22632f'
-};
+/**
+ * Register a bearer-token JWT strategy.
+ *
+ * @param {string} name             Strategy name used by passport.authenticate()
+ * @param {object} options
+ * @param {string} options.secret   Secret the token must be signed with
+ * @param {string} [options.authType]      Required `authType` claim (admin / user)
+ * @param {boolean} [options.requireAdmin] Reject users without the admin role
+ */
+function registerStrategy(name, { secret, authType = null, requireAdmin = false }) {
+    const strategyOptions = {
+        jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+        secretOrKey: secret,
+    };
 
-passport.use('admin-jwt', new JwtStrategy(adminOpts, async (jwt_payload, done) => {
-    try {
-        // Verify this is an admin token
-        if (jwt_payload.authType !== 'admin') {
-            return done(null, false, { message: 'Invalid token type for admin access' });
-        }
+    passport.use(name, new JwtStrategy(strategyOptions, async (payload, done) => {
+        try {
+            if (authType && payload.authType !== authType) {
+                return done(null, false, { message: `Invalid token type for ${authType} access` });
+            }
 
-        const user = await model.getUserById(jwt_payload.id);
-
-        if (user) {
-            // Check if user is blocked
-            if (user.blocked === 0) {
+            const user = await model.getUserById(payload.id);
+            if (!user) {
+                return done(null, false);
+            }
+            if (user.blocked === USER_STATUS.BLOCKED) {
                 return done(null, false, { message: 'User is blocked' });
             }
-            // Check if user has admin role
-            if (user.role !== 'admin') {
+            if (requireAdmin && user.role !== USER_ROLES.ADMIN) {
                 return done(null, false, { message: 'Admin privileges required' });
             }
+
             return done(null, user);
-        } else {
-            return done(null, false);
+        } catch (error) {
+            return done(error, false);
         }
-    } catch (error) {
-        return done(error, false);
-    }
-}));
+    }));
+}
 
-// User JWT Strategy
-const userOpts = {
-    jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: process.env.JWT_USER_SECRET || 'a29f1a79fd0558c6883cfe65a1aa1d81b19056f35275ba2c3985b6684eedcc165c23511613b3c0c43cfe0e092ad97fbb4f072a2189e151033234e2e0bf5b2767'
-};
+const secrets = getSecrets();
 
-passport.use('user-jwt', new JwtStrategy(userOpts, async (jwt_payload, done) => {
-    try {
-        // Verify this is a user token
-        if (jwt_payload.authType !== 'user') {
-            return done(null, false, { message: 'Invalid token type for user access' });
-        }
-
-        const user = await model.getUserById(jwt_payload.id);
-
-        if (user) {
-            // Check if user is blocked
-            if (user.blocked === 0) {
-                return done(null, false, { message: 'User is blocked' });
-            }
-            return done(null, user);
-        } else {
-            return done(null, false);
-        }
-    } catch (error) {
-        return done(error, false);
-    }
-}));
-
-// Legacy JWT Strategy (for backward compatibility)
-const legacyOpts = {
-    jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-    secretOrKey: process.env.JWT_SECRET || 'your-secret-key'
-};
-
-passport.use('jwt', new JwtStrategy(legacyOpts, async (jwt_payload, done) => {
-    try {
-        const user = await model.getUserById(jwt_payload.id);
-
-        if (user) {
-            // Check if user is blocked
-            if (user.blocked === 0) {
-                return done(null, false, { message: 'User is blocked' });
-            }
-            return done(null, user);
-        } else {
-            return done(null, false);
-        }
-    } catch (error) {
-        return done(error, false);
-    }
-}));
+// Dashboard / admin API
+registerStrategy('admin-jwt', { secret: secrets.admin, authType: 'admin', requireAdmin: true });
+// Client application users
+registerStrategy('user-jwt', { secret: secrets.user, authType: 'user' });
+// Legacy tokens issued by /api/auth/login
+registerStrategy('jwt', { secret: secrets.legacy });
 
 module.exports = passport;

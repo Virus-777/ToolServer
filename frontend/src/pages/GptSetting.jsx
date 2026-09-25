@@ -1,25 +1,74 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { GPTAPI } from '../services/api';
-import { AlertModal } from '../components/Modal';
+import { Button, Card, FormField, Input, LoadingState, Page, PageHeader } from '../components/ui';
+import { useToast } from '../contexts/UIContext';
+
+const formatUsd = (amount) => {
+  const threeDecimals = amount.toFixed(3);
+  return `$${threeDecimals.endsWith('0') ? amount.toFixed(2) : threeDecimals}`;
+};
+
+/** Group models by family while preserving the catalog order. */
+const groupByFamily = (models) => {
+  const groups = new Map();
+  models.forEach((model) => {
+    const family = model.family || 'Other';
+    if (!groups.has(family)) groups.set(family, []);
+    groups.get(family).push(model);
+  });
+  return Array.from(groups, ([family, items]) => ({ family, models: items }));
+};
+
+const ModelCard = ({ model, selected, onSelect }) => (
+  <button
+    type="button"
+    onClick={() => onSelect(model.id)}
+    aria-pressed={selected}
+    className={`w-full rounded-lg border-2 p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+      selected ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-primary/60 hover:bg-gray-50'
+    }`}
+  >
+    <div className="mb-1 flex items-start justify-between gap-2">
+      <h4 className="font-semibold text-gray-900">{model.name}</h4>
+      {selected && <span className="text-xl leading-none text-primary" aria-hidden="true">✓</span>}
+    </div>
+    <code className="mb-3 block text-xs text-gray-500">{model.id}</code>
+    {model.pricing ? (
+      <dl className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <dt className="text-gray-500">Input</dt>
+          <dd className="font-medium text-gray-900">{formatUsd(model.pricing.input)}</dd>
+        </div>
+        <div>
+          <dt className="text-gray-500">Cached</dt>
+          <dd className="font-medium text-gray-900">{formatUsd(model.pricing.cached)}</dd>
+        </div>
+        <div>
+          <dt className="text-gray-500">Output</dt>
+          <dd className="font-medium text-gray-900">{formatUsd(model.pricing.output)}</dd>
+        </div>
+      </dl>
+    ) : (
+      <p className="text-sm text-gray-600">{model.description}</p>
+    )}
+  </button>
+);
 
 const GptSetting = () => {
+  const toast = useToast();
+
   const [models, setModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState(null);
-  const [currentModel, setCurrentModel] = useState('Loading...');
+  const [savedModel, setSavedModel] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [savingModel, setSavingModel] = useState(false);
+
   const [apiKey, setApiKey] = useState('');
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [apiKeyStatus, setApiKeyStatus] = useState('');
-  const [showSaveButton, setShowSaveButton] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [alertOpen, setAlertOpen] = useState(false);
-  const [alertMessage, setAlertMessage] = useState('');
-  const [alertTitle, setAlertTitle] = useState('');
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
 
-  useEffect(() => {
-    loadGPTModels();
-  }, []);
-
-  const loadGPTModels = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const [modelsData, selectedData, apiKeyData] = await Promise.all([
@@ -29,174 +78,147 @@ const GptSetting = () => {
       ]);
 
       setModels(modelsData.models || []);
-      const current = selectedData.selectedModel || 'gpt-3.5-turbo';
-      setSelectedModel(current);
-      const currentModelInfo = modelsData.models?.find((m) => m.id === current);
-      setCurrentModel(currentModelInfo ? currentModelInfo.name : current);
-
-      if (apiKeyData.isSet) {
-        setApiKey(apiKeyData.apiKey);
-        setApiKeyStatus('✅ API key is configured');
-      } else {
-        setApiKey('');
-        setApiKeyStatus('⚠️ No API key configured');
-      }
+      setSavedModel(selectedData.selectedModel);
+      setSelectedModel(selectedData.selectedModel);
+      setApiKeyConfigured(Boolean(apiKeyData.isSet));
+      setApiKey(apiKeyData.isSet ? apiKeyData.apiKey : '');
     } catch (error) {
-      showAlert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const showAlert = (title, message) => {
-    setAlertTitle(title);
-    setAlertMessage(message);
-    setAlertOpen(true);
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const handleSelectModel = (modelId) => {
-    setSelectedModel(modelId);
-    setShowSaveButton(true);
-  };
+  const groups = useMemo(() => groupByFamily(models), [models]);
+  const savedModelInfo = models.find((model) => model.id === savedModel);
+  const isDirty = selectedModel !== savedModel;
 
   const handleSaveModel = async () => {
-    if (!selectedModel) {
-      showAlert('No Model Selected', 'Please select a model first');
-      return;
-    }
-
     try {
-      await GPTAPI.setSelectedModel(selectedModel);
-      const modelInfo = models.find((m) => m.id === selectedModel);
-      setCurrentModel(modelInfo ? modelInfo.name : selectedModel);
-      setShowSaveButton(false);
-      showAlert('Success', 'Model selection saved successfully!');
+      setSavingModel(true);
+      const data = await GPTAPI.setSelectedModel(selectedModel);
+      setSavedModel(selectedModel);
+      toast.success(`Model set to ${data.modelName || selectedModel}`);
     } catch (error) {
-      showAlert('Error', error.message);
+      toast.error(error.message);
+    } finally {
+      setSavingModel(false);
     }
   };
 
-  const handleSaveApiKey = async () => {
+  const handleSaveApiKey = async (event) => {
+    event.preventDefault();
     const trimmedKey = apiKey.trim();
 
     if (!trimmedKey) {
-      setApiKeyStatus('❌ Please enter an API key');
+      toast.error('Please enter an API key');
       return;
     }
-
     if (!trimmedKey.startsWith('sk-') || trimmedKey.length < 20) {
-      setApiKeyStatus('❌ Invalid API key format (must start with sk- and be at least 20 characters)');
+      toast.error('Invalid API key format: it must start with "sk-" and be at least 20 characters');
+      return;
+    }
+    if (trimmedKey.includes('•')) {
+      toast.warning('Paste the full API key, the masked value cannot be re-saved');
       return;
     }
 
     try {
+      setSavingKey(true);
       await GPTAPI.saveApiKey(trimmedKey);
-      setApiKeyStatus('✅ API key saved successfully!');
-      setTimeout(() => {
-        loadGPTModels();
-      }, 1000);
+      toast.success('OpenAI API key saved');
+      setApiKeyVisible(false);
+      const keyData = await GPTAPI.getApiKey();
+      setApiKeyConfigured(Boolean(keyData.isSet));
+      setApiKey(keyData.isSet ? keyData.apiKey : '');
     } catch (error) {
-      setApiKeyStatus('❌ Error: ' + error.message);
+      toast.error(error.message);
+    } finally {
+      setSavingKey(false);
     }
   };
 
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">GPT Model Selection</h1>
+    <Page>
+      <PageHeader title="GPT Model" description="OpenAI credentials and the model used by the client application" />
 
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <h3 className="text-xl font-semibold mb-2">🔑 OpenAI API Key</h3>
-        <p className="text-gray-600 mb-4">Configure your OpenAI API key to enable GPT model functionality.</p>
+      <Card className="mb-6">
+        <h2 className="mb-1 text-lg font-semibold text-gray-900">🔑 OpenAI API Key</h2>
+        <p className="mb-4 text-sm text-gray-600">Required for the GPT models. The stored key is shown masked.</p>
 
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-          <div className="flex gap-2">
-            <input
-              type={apiKeyVisible ? 'text' : 'password'}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <button
-              onClick={() => setApiKeyVisible(!apiKeyVisible)}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-            >
-              {apiKeyVisible ? '🙈' : '👁️'}
-            </button>
+        <form onSubmit={handleSaveApiKey}>
+          <FormField
+            label="API Key"
+            htmlFor="openai-key"
+            hint={apiKeyConfigured ? '✅ An API key is configured. Paste a new key to replace it.' : '⚠️ No API key configured yet.'}
+          >
+            <div className="flex gap-2">
+              <Input
+                id="openai-key"
+                type={apiKeyVisible ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Button type="button" variant="secondary" onClick={() => setApiKeyVisible(!apiKeyVisible)} aria-label={apiKeyVisible ? 'Hide API key' : 'Show API key'}>
+                {apiKeyVisible ? 'Hide' : 'Show'}
+              </Button>
+            </div>
+          </FormField>
+          <Button type="submit" loading={savingKey}>💾 Save API Key</Button>
+        </form>
+      </Card>
+
+      <Card>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Model Selection</h2>
+            <p className="text-sm text-gray-600">Prices are USD per 1M tokens (input / cached input / output).</p>
           </div>
-          <small className={`block mt-1 ${apiKeyStatus.includes('✅') ? 'text-green-600' : apiKeyStatus.includes('⚠️') ? 'text-orange-600' : apiKeyStatus.includes('❌') ? 'text-red-600' : 'text-gray-500'}`}>
-            {apiKeyStatus}
-          </small>
-        </div>
-        <button
-          onClick={handleSaveApiKey}
-          className="bg-primary text-white px-4 py-2 rounded-md hover:bg-primary-dark"
-        >
-          💾 Save API Key
-        </button>
-      </div>
-
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-xl font-semibold mb-2">Choose Your Preferred GPT Model</h3>
-        <p className="text-gray-600 mb-4">
-          Select the AI model that best suits your needs. The selected model will be saved and used across the application.
-        </p>
-
-        <div className="mb-6 p-4 bg-gray-50 rounded-md">
-          <strong>Currently Selected:</strong> <span className="text-primary">{currentModel}</span>
+          <div className="rounded-md bg-gray-50 px-4 py-2 text-sm">
+            <span className="text-gray-600">Currently saved: </span>
+            <span className="font-semibold text-primary">{savedModelInfo ? savedModelInfo.name : savedModel || '—'}</span>
+          </div>
         </div>
 
         {loading ? (
-          <div className="text-center py-8">Loading available models...</div>
+          <LoadingState label="Loading available models…" />
+        ) : models.length === 0 ? (
+          <div className="py-8 text-center text-gray-500">No models available</div>
         ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-              {models.length === 0 ? (
-                <div className="col-span-full text-center py-8 text-gray-500">No models available</div>
-              ) : (
-                models.map((model) => (
-                  <div
-                    key={model.id}
-                    onClick={() => handleSelectModel(model.id)}
-                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                      selectedModel === model.id
-                        ? 'border-primary bg-primary bg-opacity-10'
-                        : 'border-gray-200 hover:border-primary hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-semibold text-gray-900">{model.name}</h4>
-                      {selectedModel === model.id && (
-                        <span className="text-primary text-xl">✓</span>
-                      )}
-                    </div>
-                    <span className="text-xs text-gray-500 block mb-2">{model.id}</span>
-                    <p className="text-sm text-gray-600">{model.description}</p>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {showSaveButton && (
-              <button
-                onClick={handleSaveModel}
-                className="w-full bg-primary text-white py-2 px-4 rounded-md hover:bg-primary-dark"
-              >
-                Save Selection
-              </button>
-            )}
-          </>
+          <div className="space-y-6">
+            {groups.map((group) => (
+              <section key={group.family}>
+                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">{group.family}</h3>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {group.models.map((model) => (
+                    <ModelCard key={model.id} model={model} selected={selectedModel === model.id} onSelect={setSelectedModel} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
         )}
-      </div>
 
-      <AlertModal
-        isOpen={alertOpen}
-        onClose={() => setAlertOpen(false)}
-        title={alertTitle}
-        message={alertMessage}
-      />
-    </div>
+        {isDirty && (
+          <div className="sticky bottom-4 mt-6 flex flex-col gap-3 rounded-lg border border-primary/30 bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm text-gray-700">
+              Switch to <strong>{models.find((model) => model.id === selectedModel)?.name || selectedModel}</strong>?
+            </span>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setSelectedModel(savedModel)}>Cancel</Button>
+              <Button onClick={handleSaveModel} loading={savingModel}>Save Selection</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </Page>
   );
 };
 

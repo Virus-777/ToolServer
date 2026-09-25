@@ -1,243 +1,137 @@
-const model = require("../database/model");
-const { handleError } = require("../utils/utils");
-const OpenAI = require("openai");
-const openai = new OpenAI({
-  baseURL: "http://127.0.0.1:11434/v1",
-  apiKey: "ollama",
-});
+'use strict';
 
-// Available GPT models
-const GPT_MODELS = [
-  // GPT-5 series
-  {
-    id: "gpt-5.6-terra",
-    name: "GPT-5.6 Terra",
-    description: "Input $2.50 | Cached $0.25 | Output $15.00",
-  },
-  {
-    id: "gpt-5.6-luna",
-    name: "GPT-5.6 Luna",
-    description: "Input $1.00 | Cached $0.10 | Output $6.00",
-  },
-  {
-    id: "gpt-5.5",
-    name: "GPT-5.5",
-    description: "Input $5.00 | Cached $0.50 | Output $30.00",
-  },
-  {
-    id: "gpt-5.4",
-    name: "GPT-5.4",
-    description: "Input $2.50 | Cached $0.25 | Output $15.00",
-  },
-  {
-    id: "gpt-5.4-nano",
-    name: "GPT-5.4 Nano",
-    description: "Input $0.20 | Cached $0.02 | Output $1.25",
-  },
-  {
-    id: "gpt-5.4-mini",
-    name: "GPT-5.4 Mini",
-    description: "Input $0.75 | Cached $0.075 | Output $4.50",
-  },
-  {
-    id: "gpt-5.2",
-    name: "GPT-5.2",
-    description: "Input $1.75 | Cached $0.175 | Output $14.00",
-  },
-  {
-    id: "gpt-5.1",
-    name: "GPT-5.1",
-    description: "Input $1.25 | Cached $0.125 | Output $10.00",
-  },
-  {
-    id: "gpt-5",
-    name: "GPT-5",
-    description: "Input $1.25 | Cached $0.125 | Output $10.00",
-  },
-  {
-    id: "gpt-5-mini",
-    name: "GPT-5 Mini",
-    description: "Input $0.25 | Cached $0.025 | Output $2.00",
-  },
-  {
-    id: "gpt-5-nano",
-    name: "GPT-5 Nano",
-    description: "Input $0.05 | Cached $0.005 | Output $0.40",
-  },
-  // GPT-5 Chat latest
-  {
-    id: "gpt-5.2-chat-latest",
-    name: "GPT-5.2 Chat Latest",
-    description: "Input $1.75 | Cached $0.175 | Output $14.00",
-  },
-  {
-    id: "gpt-5.1-chat-latest",
-    name: "GPT-5.1 Chat Latest",
-    description: "Input $1.25 | Cached $0.125 | Output $10.00",
-  },
-  {
-    id: "gpt-5-chat-latest",
-    name: "GPT-5 Chat Latest",
-    description: "Input $1.25 | Cached $0.125 | Output $10.00",
-  },
-  // Ollama models
-  {
-    id: "gpt-oss:120b-cloud",
-    name: "GPT-OSS 120B Cloud",
-    description: "120B parameter model for cloud use on ollama",
-  },
-  {
-    id: "kimi-k2.5:cloud",
-    name: "Kimi K2.5 Cloud",
-    description: "Kimi K2.5 model for cloud use on ollama",
-  },
-];
+const OpenAI = require('openai');
+const model = require('../database/model');
+const { handleError } = require('../utils/utils');
+const { logHistory } = require('../utils/history');
+const { GPT_MODELS, findModel } = require('../config/gpt-models');
+const { SETTING_KEYS, DEFAULT_GPT_MODEL, HISTORY_ACTIONS, HISTORY_ENTITIES } = require('../config/constants');
 
-const SETTING_KEY = "selected_gpt_model";
-const API_KEY_SETTING = "openai_api_key";
+const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434/v1';
 
-// Get available GPT models
+let responsesClient = null;
+
+/** OpenAI-compatible client pointed at the local Ollama gateway (created lazily). */
+function getResponsesClient() {
+    if (!responsesClient) {
+        responsesClient = new OpenAI({
+            baseURL: process.env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_BASE_URL,
+            apiKey: process.env.OLLAMA_API_KEY || 'ollama',
+        });
+    }
+    return responsesClient;
+}
+
+/** Show only the last four characters of a secret. */
+const maskSecret = (value) => (value.length > 4 ? '•'.repeat(value.length - 4) + value.slice(-4) : '••••');
+
 exports.getAvailableModels = async (req, res) => {
-  try {
-    res.status(200).json({
-      models: GPT_MODELS,
-    });
-  } catch (error) {
-    console.error("Get models error:", error);
-    handleError(res, 500, "Error fetching GPT models");
-  }
+    res.status(200).json({ models: GPT_MODELS });
 };
 
-// Get currently selected model
 exports.getSelectedModel = async (req, res) => {
-  try {
-    const setting = await model.getSettingByKey(SETTING_KEY);
+    try {
+        const setting = await model.getSettingByKey(SETTING_KEYS.SELECTED_GPT_MODEL);
 
-    if (!setting) {
-      // Return default model if not set
-      return res.status(200).json({
-        selectedModel: "gpt-5-mini",
-        isDefault: true,
-      });
+        res.status(200).json({
+            selectedModel: setting ? setting.value : DEFAULT_GPT_MODEL,
+            isDefault: !setting,
+        });
+    } catch (error) {
+        console.error('Get selected model error:', error);
+        handleError(res, 500, 'Error fetching selected model');
     }
-
-    res.status(200).json({
-      selectedModel: setting.value,
-      isDefault: false,
-    });
-  } catch (error) {
-    console.error("Get selected model error:", error);
-    handleError(res, 500, "Error fetching selected model");
-  }
 };
 
-// Set selected model
 exports.setSelectedModel = async (req, res) => {
-  const { modelId } = req.body;
+    const { modelId } = req.body;
 
-  try {
-    if (!modelId) {
-      return handleError(res, 400, "Model ID is required");
+    try {
+        if (!modelId) {
+            return handleError(res, 400, 'Model ID is required');
+        }
+
+        const validModel = findModel(modelId);
+        if (!validModel) {
+            return handleError(res, 400, 'Invalid model ID');
+        }
+
+        await model.setSettingValue(SETTING_KEYS.SELECTED_GPT_MODEL, modelId);
+
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.UPDATE,
+            entity: HISTORY_ENTITIES.SETTING,
+            description: `GPT model changed to ${validModel.name}`,
+            metadata: { key: SETTING_KEYS.SELECTED_GPT_MODEL, value: modelId },
+        });
+
+        res.status(200).json({
+            message: 'GPT model updated successfully',
+            selectedModel: modelId,
+            modelName: validModel.name,
+        });
+    } catch (error) {
+        console.error('Set selected model error:', error);
+        handleError(res, 500, 'Error updating selected model');
     }
-
-    // Validate model ID
-    const validModel = GPT_MODELS.find((m) => m.id === modelId);
-    if (!validModel) {
-      return handleError(res, 400, "Invalid model ID");
-    }
-
-    // Check if setting exists
-    const existingSetting = await model.getSettingByKey(SETTING_KEY);
-
-    if (existingSetting) {
-      // Update existing setting
-      await model.updateSetting(existingSetting.id, SETTING_KEY, modelId);
-    } else {
-      // Create new setting
-      await model.createSetting(SETTING_KEY, modelId);
-    }
-
-    res.status(200).json({
-      message: "GPT model updated successfully",
-      selectedModel: modelId,
-      modelName: validModel.name,
-    });
-  } catch (error) {
-    console.error("Set selected model error:", error);
-    handleError(res, 500, "Error updating selected model");
-  }
 };
 
-// Get OpenAI API key
 exports.getApiKey = async (req, res) => {
-  try {
-    const setting = await model.getSettingByKey(API_KEY_SETTING);
+    try {
+        const setting = await model.getSettingByKey(SETTING_KEYS.OPENAI_API_KEY);
 
-    if (!setting) {
-      return res.status(200).json({
-        apiKey: null,
-        isSet: false,
-      });
+        if (!setting) {
+            return res.status(200).json({ apiKey: null, isSet: false });
+        }
+
+        res.status(200).json({
+            apiKey: maskSecret(setting.value),
+            isSet: true,
+        });
+    } catch (error) {
+        console.error('Get API key error:', error);
+        handleError(res, 500, 'Error fetching API key');
     }
-
-    // Mask the API key for security (show only last 4 characters)
-    const maskedKey =
-      setting.value.length > 4
-        ? "•".repeat(setting.value.length - 4) + setting.value.slice(-4)
-        : "••••";
-
-    res.status(200).json({
-      apiKey: maskedKey,
-      isSet: true,
-    });
-  } catch (error) {
-    console.error("Get API key error:", error);
-    handleError(res, 500, "Error fetching API key");
-  }
 };
 
-// Save OpenAI API key
 exports.saveApiKey = async (req, res) => {
-  const { apiKey } = req.body;
+    const { apiKey } = req.body;
 
-  try {
-    if (!apiKey) {
-      return handleError(res, 400, "API key is required");
+    try {
+        if (!apiKey) {
+            return handleError(res, 400, 'API key is required');
+        }
+
+        if (!apiKey.startsWith('sk-') || apiKey.length < 20) {
+            return handleError(res, 400, 'Invalid API key format');
+        }
+
+        await model.setSettingValue(SETTING_KEYS.OPENAI_API_KEY, apiKey);
+
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.UPDATE,
+            entity: HISTORY_ENTITIES.SETTING,
+            description: 'OpenAI API key updated',
+            metadata: { key: SETTING_KEYS.OPENAI_API_KEY, value: maskSecret(apiKey) },
+        });
+
+        res.status(200).json({
+            message: 'OpenAI API key saved successfully',
+            isSet: true,
+        });
+    } catch (error) {
+        console.error('Save API key error:', error);
+        handleError(res, 500, 'Error saving API key');
     }
-
-    // Validate API key format (basic check)
-    if (!apiKey.startsWith("sk-") || apiKey.length < 20) {
-      return handleError(res, 400, "Invalid API key format");
-    }
-
-    // Check if setting exists
-    const existingSetting = await model.getSettingByKey(API_KEY_SETTING);
-
-    if (existingSetting) {
-      // Update existing setting
-      await model.updateSetting(existingSetting.id, API_KEY_SETTING, apiKey);
-    } else {
-      // Create new setting
-      await model.createSetting(API_KEY_SETTING, apiKey);
-    }
-
-    res.status(200).json({
-      message: "OpenAI API key saved successfully",
-      isSet: true,
-    });
-  } catch (error) {
-    console.error("Save API key error:", error);
-    handleError(res, 500, "Error saving API key");
-  }
 };
 
+/** Proxy a Responses API request to the local model gateway. */
 exports.getResponses = async (req, res) => {
-  try {
-    const response = await openai.responses.create(req.body);
-
-    res.status(200).send(response);
-  } catch (error) {
-    console.error("Get responses error:", error);
-    handleError(res, 500, "Error fetching responses");
-  }
+    try {
+        const response = await getResponsesClient().responses.create(req.body);
+        res.status(200).send(response);
+    } catch (error) {
+        console.error('Get responses error:', error);
+        handleError(res, 500, 'Error fetching responses');
+    }
 };

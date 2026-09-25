@@ -1,196 +1,109 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const model = require("../database/model");
-const { handleError } = require("../utils/utils");
-const { getClientIP } = require("../utils/ip.utils");
+'use strict';
+
+const model = require('../database/model');
+const { handleError, sanitizeUser } = require('../utils/utils');
+const { getClientIP } = require('../utils/ip.utils');
+const { logHistory } = require('../utils/history');
+const { signAdminToken, hashPassword, verifyPassword } = require('../config/auth');
+const { HISTORY_ACTIONS, HISTORY_ENTITIES, USER_ROLES, USER_STATUS } = require('../config/constants');
+
+/**
+ * Dashboard (admin) authentication (/api/admin).
+ * Tokens issued here are verified by the `admin-jwt` passport strategy.
+ */
 
 exports.adminLogin = async (req, res) => {
-  const { email, password } = req.body;
+    const { email, password } = req.body;
 
-  console.log(email, password);
+    try {
+        const user = await model.getUserByEmail(email);
+        if (!user) {
+            return handleError(res, 401, 'Invalid email');
+        }
+        if (user.blocked === USER_STATUS.BLOCKED) {
+            return handleError(res, 403, 'Your account has been blocked');
+        }
+        if (user.role !== USER_ROLES.ADMIN) {
+            return handleError(res, 403, 'Access denied. Admin privileges required.');
+        }
+        if (!(await verifyPassword(password, user.password))) {
+            return handleError(res, 401, 'Invalid password');
+        }
 
-  try {
-    // Get client IP address
-    const clientIP = getClientIP(req);
+        const token = signAdminToken(user);
 
-    // Find user by email
-    const user = await model.getUserByEmail(email);
-    if (!user) {
-      return handleError(res, 401, "Invalid email");
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.LOGIN,
+            entity: HISTORY_ENTITIES.USER,
+            entityId: user.id,
+            description: `Admin logged in: ${user.email}`,
+            actor: user,
+        });
+
+        res.status(200).json({
+            message: 'Admin login successful',
+            token,
+            user: sanitizeUser(user),
+        });
+    } catch (error) {
+        console.error('Admin login error:', error);
+        handleError(res, 500, 'Error logging in as admin');
     }
-
-    // Check if user is blocked
-    if (user.blocked === 0) {
-      return handleError(res, 403, "Your account has been blocked");
-    }
-
-    // Check if user has admin role
-    if (user.role !== "admin") {
-      return handleError(res, 403, "Access denied. Admin privileges required.");
-    }
-
-    // Verify IP address - must match registration IP
-    console.warn(
-      `Login attempt from IP. User: ${email}, Registered IP: ${user.registration_ip}, Request IP: ${clientIP}`,
-    );
-    // if (user.registration_ip && user.registration_ip !== clientIP && clientIP !== '127.0.0.1') {
-    //     console.warn(`Admin login attempt from different IP. User: ${email}, Registered IP: ${user.registration_ip}, Request IP: ${clientIP}`);
-    //     return handleError(res, 403, 'Login from this IP address is not allowed');
-    // }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return handleError(res, 401, "Invalid password");
-    }
-
-    // Generate JWT token with admin secret
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: "admin",
-        authType: "admin",
-      },
-      process.env.JWT_ADMIN_SECRET ||
-        process.env.JWT_SECRET ||
-        "admin-secret-key",
-      { expiresIn: process.env.JWT_EXPIRES_IN || "24h" },
-    );
-
-    // Log history
-    await model.createHistoryLog(
-      user.id,
-      user.email,
-      "login",
-      "user",
-      user.id,
-      `Admin logged in: ${user.email}`,
-      clientIP,
-    );
-
-    // Remove password from response
-    delete user.password;
-
-    res.status(200).json({
-      message: "Admin login successful",
-      token,
-      user,
-    });
-  } catch (error) {
-    console.error("Admin login error:", error);
-    handleError(res, 500, "Error logging in as admin");
-  }
 };
 
 exports.adminRegister = async (req, res) => {
-  const { name, email, password } = req.body;
+    const { name, email, password } = req.body;
 
-  try {
-    // Get client IP address
-    const clientIP = getClientIP(req);
+    try {
+        const clientIP = getClientIP(req);
 
-    // Check if user already exists with this email
-    const existingUser = await model.getUserByEmail(email);
-    if (existingUser) {
-      return handleError(res, 400, "User with this email already exists");
+        if (await model.getUserByEmail(email)) {
+            return handleError(res, 400, 'User with this email already exists');
+        }
+
+        // Accounts created through the admin endpoint are always administrators
+        const newUser = await model.createUser(name, email, await hashPassword(password), clientIP, USER_ROLES.ADMIN);
+        console.log(`Admin registered with IP ${clientIP}: ${newUser.email}`);
+
+        await logHistory(req, {
+            action: HISTORY_ACTIONS.SIGN_UP,
+            entity: HISTORY_ENTITIES.USER,
+            entityId: newUser.id,
+            description: `Admin registered: ${name} (${email})`,
+            actor: newUser,
+        });
+
+        res.status(201).json({
+            message: 'Admin registered successfully',
+            user: sanitizeUser(newUser),
+        });
+    } catch (error) {
+        console.error('Admin registration error:', error);
+        handleError(res, 500, 'Error registering admin');
     }
-
-    // Check if user already registered from this IP address
-    // const ipUser = await model.getUserByIP(clientIP);
-    // if (ipUser) {
-    //   return handleError(
-    //     res,
-    //     403,
-    //     "A user has already been registered from this IP address",
-    //   );
-    // }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Check if this is the first user (make them admin)
-    const existingUsers = await model.getUsers();
-    const userRole = existingUsers.length === 0 ? "admin" : "admin"; // Force admin role for admin registration
-
-    // Create user with registration IP and admin role
-    const newUser = await model.createUser(
-      name,
-      email,
-      hashedPassword,
-      clientIP,
-      userRole,
-    );
-    console.log(`Admin registered with IP ${clientIP}: ${newUser.email}`);
-
-    // Log history
-    await model.createHistoryLog(
-      newUser.id,
-      newUser.email,
-      "sign_up",
-      "user",
-      newUser.id,
-      `Admin registered: ${name} (${email})`,
-      clientIP,
-    );
-
-    // Remove password from response
-    delete newUser.password;
-
-    res.status(201).json({
-      message: "Admin registered successfully",
-      user: newUser,
-    });
-  } catch (error) {
-    console.error("Admin registration error:", error);
-    handleError(res, 500, "Error registering admin");
-  }
 };
 
 exports.adminVerify = async (req, res) => {
-  try {
-    // Token is already verified by the authenticate middleware
-    // req.user contains the decoded user data
-    const user = await model.getUserById(req.user.id);
+    try {
+        // The authenticateAdmin middleware already validated the token
+        const user = await model.getUserById(req.user.id);
+        if (!user) {
+            return handleError(res, 404, 'User not found');
+        }
+        if (user.blocked === USER_STATUS.BLOCKED) {
+            return handleError(res, 403, 'Your account has been blocked');
+        }
+        if (user.role !== USER_ROLES.ADMIN) {
+            return handleError(res, 403, 'Access denied. Admin privileges required.');
+        }
 
-    if (!user) {
-      return handleError(res, 404, "User not found");
+        res.status(200).json({
+            message: 'Admin token verified successfully',
+            token: signAdminToken(user),
+            user: sanitizeUser(user),
+        });
+    } catch (error) {
+        console.error('Admin verify token error:', error);
+        handleError(res, 500, 'Error verifying admin token');
     }
-
-    // Check if user is blocked
-    if (user.blocked === 0) {
-      return handleError(res, 403, "Your account has been blocked");
-    }
-
-    // Check if user has admin role
-    if (user.role !== "admin") {
-      return handleError(res, 403, "Access denied. Admin privileges required.");
-    }
-
-    // Generate new JWT token with admin secret
-    const newToken = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: "admin",
-        authType: "admin",
-      },
-      process.env.JWT_ADMIN_SECRET ||
-        process.env.JWT_SECRET ||
-        "admin-secret-key",
-      { expiresIn: process.env.JWT_EXPIRES_IN || "24h" },
-    );
-
-    // Remove password from response
-    delete user.password;
-
-    res.status(200).json({
-      message: "Admin token verified successfully",
-      token: newToken,
-      user,
-    });
-  } catch (error) {
-    console.error("Admin verify token error:", error);
-    handleError(res, 500, "Error verifying admin token");
-  }
 };

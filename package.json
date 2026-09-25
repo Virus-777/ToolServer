@@ -1,16 +1,24 @@
 {
   "name": "tailorresumeauthserver",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "TailorResume Authentication Server - Comprehensive user authentication, IP management, and settings configuration for TailorResume application",
   "main": "index.js",
   "bin": "index.js",
   "author": "TailorResume Team",
   "copyright": "Copyright (C) 2024 TailorResume. All rights reserved.",
   "company": "TailorResume",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
     "setup": "node -e \"require('./database/setup').setupDatabase()\"",
+    "check": "node --check index.js && node --check app.js",
+    "import:bid": "node scripts/import-bid-data.js",
+    "frontend:install": "npm --prefix frontend install",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
     "build": "pkg . --compress GZip",
     "build:win": "pkg . --targets node18-win-x64 --compress GZip --output dist/TailorResumeAuthServer-win.exe",
     "build:linux": "pkg . --targets node18-linux-x64 --compress GZip --output dist/TailorResumeAuthServer-linux",
@@ -23,6 +31,7 @@
     ],
     "scripts": [
       "index.js",
+      "app.js",
       "config/**/*.js",
       "controllers/**/*.js",
       "database/**/*.js",
@@ -49,7 +58,6 @@
   "type": "commonjs",
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "body-parser": "^2.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

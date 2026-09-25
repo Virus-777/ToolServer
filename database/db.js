@@ -1,23 +1,27 @@
-const { Pool } = require('pg');
-// Environment variables are loaded in index.js
+'use strict';
 
+const { Pool } = require('pg');
+
+// NOTE: the environment must be loaded (config/env.js) before this module is required.
 const pool = new Pool({
-  host: process.env.PG_HOST,
-  port: process.env.PG_PORT,        // default 5432
-  user: process.env.PG_USER,
-  password: process.env.PG_PASSWORD,
-  database: process.env.PG_DATABASE,
-  max: 20,    // optional: max number of clients in pool
-  idleTimeoutMillis: 30000,  // close idle clients after 30s
-  connectionTimeoutMillis: 2000,  // return error after 2s if cannot connect
+    host: process.env.PG_HOST,
+    port: Number(process.env.PG_PORT) || 5432,
+    user: process.env.PG_USER,
+    password: process.env.PG_PASSWORD,
+    database: process.env.PG_DATABASE,
+    max: Number(process.env.PG_POOL_MAX) || 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS) || 5000,
 });
 
-pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+// An idle client can error when the database restarts. The pool discards the
+// broken client on its own, so log it instead of killing the whole server.
+pool.on('error', (err) => {
+    console.error('Unexpected error on idle PostgreSQL client:', err.message);
 });
 
 module.exports = {
-  query: (text, params) => pool.query(text, params),
-  getClient: () => pool.connect(),  // for transactions
+    query: (text, params) => pool.query(text, params),
+    getClient: () => pool.connect(), // for transactions
+    end: () => pool.end(),           // graceful shutdown
 };

@@ -16,11 +16,11 @@ cd frontend
 npm install  # First time only
 npm run dev
 ```
-The frontend will run on `http://localhost:3000`
+The frontend will run on `http://localhost:3003`
 
 3. **Access the Application**:
-   - Open your browser and go to: `http://localhost:3000`
-   - **DO NOT** try to access source files directly like `http://localhost:3000/src/pages/GPT.jsx`
+   - Open your browser and go to: `http://localhost:3003`
+   - **DO NOT** try to access source files directly like `http://localhost:3003/src/pages/GPT.jsx`
    - Use the routes: `/login`, `/users`, `/gpt`, `/configs`, `/jobs`
 
 ## Production Build
@@ -43,11 +43,11 @@ npm start
 
 ### ERR_BLOCKED_BY_CLIENT
 - This usually means you're trying to access source files directly
-- **Solution**: Access the app through the root URL (`http://localhost:3000` or `http://localhost:8085`)
+- **Solution**: Access the app through the root URL (`http://localhost:3003` or `http://localhost:8085`)
 - Use routes like `/gpt` instead of `/src/pages/GPT.jsx`
 
 ### Port Already in Use
-- If port 3000 is in use, Vite will automatically try the next available port
+- If port 3003 is in use, Vite will automatically try the next available port
 - Check the terminal output for the actual port number
 
 ### API Connection Issues

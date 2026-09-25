@@ -1,281 +1,241 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { HistoryAPI } from '../services/api';
+import { Modal } from '../components/Modal';
+import Pagination from '../components/Pagination';
+import { ActionButton, Badge, Button, Card, DataTable, FormField, Input, Page, PageHeader, Placeholder, Select } from '../components/ui';
+import { useToast } from '../contexts/UIContext';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { formatDateTime } from '../utils/format';
+
+const ACTION_OPTIONS = [
+  { value: 'sign_up', label: 'Sign Up' },
+  { value: 'login', label: 'Login' },
+  { value: 'create', label: 'Create' },
+  { value: 'update', label: 'Update' },
+  { value: 'delete', label: 'Delete' },
+];
+
+const ENTITY_OPTIONS = [
+  { value: 'user', label: 'User' },
+  { value: 'job', label: 'Job' },
+  { value: 'block_list', label: 'Block List' },
+  { value: 'setting', label: 'Setting' },
+  { value: 'config', label: 'Config' },
+  { value: 'allowed_email', label: 'Allowed Email' },
+  { value: 'assembly_token', label: 'Assembly Token' },
+];
+
+const ACTION_COLORS = {
+  sign_up: 'green',
+  login: 'blue',
+  create: 'purple',
+  update: 'yellow',
+  delete: 'red',
+};
+
+const formatMetadata = (metadata) => {
+  if (!metadata) return null;
+  try {
+    const parsed = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return String(metadata);
+  }
+};
 
 const History = () => {
+  const toast = useToast();
+
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
   const [pageSize, setPageSize] = useState(50);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalLogs, setTotalLogs] = useState(0);
-  const [filters, setFilters] = useState({
-    user_id: '',
-    action_type: '',
-    entity_type: '',
-  });
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ user_id: '', action_type: '', entity_type: '' });
+  const [selectedLog, setSelectedLog] = useState(null);
+  const debouncedUserId = useDebouncedValue(filters.user_id, 400);
+  const requestId = useRef(0);
+
+  const loadHistory = useCallback(async () => {
+    const id = ++requestId.current;
+    try {
+      setLoading(true);
+      const data = await HistoryAPI.getAll({
+        page,
+        limit: pageSize,
+        user_id: debouncedUserId || undefined,
+        action_type: filters.action_type || undefined,
+        entity_type: filters.entity_type || undefined,
+      });
+      if (id !== requestId.current) return; // a newer request has superseded this one
+      setLogs(data.logs || []);
+      setPagination(data.pagination);
+    } catch (error) {
+      if (id === requestId.current) toast.error(error.message);
+    } finally {
+      if (id === requestId.current) setLoading(false);
+    }
+  }, [page, pageSize, debouncedUserId, filters.action_type, filters.entity_type, toast]);
 
   useEffect(() => {
     loadHistory();
-  }, [currentPage, pageSize, filters]);
+  }, [loadHistory]);
 
-  const loadHistory = async () => {
-    try {
-      setLoading(true);
-      const data = await HistoryAPI.getAll(
-        currentPage,
-        pageSize,
-        filters.user_id || null,
-        filters.action_type || null,
-        filters.entity_type || null
-      );
-      setLogs(data.logs || []);
-      setCurrentPage(data.pagination.page);
-      setTotalPages(data.pagination.totalPages);
-      setTotalLogs(data.pagination.total);
-    } catch (error) {
-      console.error('Error loading history:', error);
-    } finally {
-      setLoading(false);
-    }
+  const handleFilterChange = (field) => (event) => {
+    setFilters((prev) => ({ ...prev, [field]: event.target.value }));
+    setPage(1);
   };
 
-  const handleFilterChange = (field, value) => {
-    setFilters({ ...filters, [field]: value });
-    setCurrentPage(1);
-  };
-
-  const handlePageChange = (page) => {
-    if (page >= 1 && page <= totalPages && page !== currentPage) {
-      setCurrentPage(page);
-    }
-  };
-
-  const handlePageSizeChange = (e) => {
-    setPageSize(parseInt(e.target.value));
-    setCurrentPage(1);
-  };
-
-  const getActionTypeColor = (actionType) => {
-    switch (actionType) {
-      case 'sign_up':
-        return 'bg-green-100 text-green-800';
-      case 'login':
-        return 'bg-blue-100 text-blue-800';
-      case 'create':
-        return 'bg-purple-100 text-purple-800';
-      case 'update':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'delete':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const formatMetadata = (metadata) => {
-    if (!metadata) return null;
-    try {
-      const parsed = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return metadata;
-    }
-  };
-
-  const startItem = totalLogs === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const endItem = Math.min(currentPage * pageSize, totalLogs);
-  const maxVisiblePages = 5;
-  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-  if (endPage - startPage + 1 < maxVisiblePages) {
-    startPage = Math.max(1, endPage - maxVisiblePages + 1);
-  }
+  const columns = [
+    { key: 'id', label: 'ID' },
+    {
+      key: 'user',
+      label: 'User',
+      render: (log) => log.user_email || (log.user_id ? `User #${log.user_id}` : <Placeholder>System</Placeholder>),
+    },
+    {
+      key: 'action_type',
+      label: 'Action',
+      render: (log) => <Badge color={ACTION_COLORS[log.action_type] || 'gray'}>{log.action_type}</Badge>,
+    },
+    {
+      key: 'entity_type',
+      label: 'Entity',
+      className: 'whitespace-nowrap text-gray-500',
+      render: (log) => `${log.entity_type}${log.entity_id ? ` #${log.entity_id}` : ''}`,
+    },
+    {
+      key: 'description',
+      label: 'Description',
+      className: 'max-w-md truncate text-gray-600',
+      render: (log) => (
+        <span title={log.description || undefined}>{log.description || <Placeholder>No description</Placeholder>}</span>
+      ),
+    },
+    {
+      key: 'ip_address',
+      label: 'IP Address',
+      className: 'whitespace-nowrap text-gray-500',
+      render: (log) => log.ip_address || <Placeholder>N/A</Placeholder>,
+    },
+    {
+      key: 'created_at',
+      label: 'Timestamp',
+      className: 'whitespace-nowrap text-gray-500',
+      render: (log) => formatDateTime(log.created_at),
+    },
+    {
+      key: 'actions',
+      label: '',
+      render: (log) => <ActionButton onClick={() => setSelectedLog(log)}>Details</ActionButton>,
+    },
+  ];
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">History Logs</h1>
-        <button
-          onClick={loadHistory}
-          className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
-        >
-          🔄 Refresh
-        </button>
-      </div>
+    <Page>
+      <PageHeader
+        title="History Logs"
+        description="Audit trail of logins, registrations and every change made through the API"
+        actions={<Button variant="secondary" onClick={loadHistory}>Refresh</Button>}
+      />
 
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">User ID</label>
-            <input
+      <Card className="mb-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <FormField label="User ID" htmlFor="history-user">
+            <Input
+              id="history-user"
               type="number"
+              min="1"
               value={filters.user_id}
-              onChange={(e) => handleFilterChange('user_id', e.target.value)}
+              onChange={handleFilterChange('user_id')}
               placeholder="Filter by user ID"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Action Type</label>
-            <select
-              value={filters.action_type}
-              onChange={(e) => handleFilterChange('action_type', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-            >
+          </FormField>
+          <FormField label="Action Type" htmlFor="history-action">
+            <Select id="history-action" value={filters.action_type} onChange={handleFilterChange('action_type')}>
               <option value="">All Actions</option>
-              <option value="sign_up">Sign Up</option>
-              <option value="login">Login</option>
-              <option value="create">Create</option>
-              <option value="update">Update</option>
-              <option value="delete">Delete</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Entity Type</label>
-            <select
-              value={filters.entity_type}
-              onChange={(e) => handleFilterChange('entity_type', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-            >
+              {ACTION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Entity Type" htmlFor="history-entity">
+            <Select id="history-entity" value={filters.entity_type} onChange={handleFilterChange('entity_type')}>
               <option value="">All Entities</option>
-              <option value="user">User</option>
-              <option value="job">Job</option>
-              <option value="block_list">Block List</option>
-              <option value="setting">Setting</option>
-              <option value="config">Config</option>
-            </select>
-          </div>
+              {ENTITY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          </FormField>
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        {loading ? (
-          <div className="text-center py-8">Loading history logs...</div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entity</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP Address</th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {logs.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
-                        No history logs found
-                      </td>
-                    </tr>
-                  ) : (
-                    logs.map((log) => (
-                      <tr key={log.id}>
-                        <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-900">{log.id}</td>
-                        <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {log.user_email || `User #${log.user_id}`}
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap text-sm">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getActionTypeColor(log.action_type)}`}>
-                            {log.action_type}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {log.entity_type}
-                          {log.entity_id && ` #${log.entity_id}`}
-                        </td>
-                        <td className="px-5 py-4 text-sm text-gray-500 max-w-xs truncate" title={log.description}>
-                          {log.description || <em>No description</em>}
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {log.ip_address || <em>N/A</em>}
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(log.created_at).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+      <Card>
+        <DataTable
+          columns={columns}
+          rows={logs}
+          rowKey={(log) => log.id}
+          loading={loading}
+          loadingLabel="Loading history…"
+          emptyMessage="No history logs match the current filters"
+        />
+
+        <Pagination
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          total={pagination.total}
+          pageSize={pageSize}
+          pageSizeOptions={[20, 50, 100, 200]}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
+      </Card>
+
+      <Modal isOpen={Boolean(selectedLog)} onClose={() => setSelectedLog(null)} title={`Log #${selectedLog?.id ?? ''}`} size="sm">
+        {selectedLog && (
+          <dl className="space-y-3 text-sm">
+            <div>
+              <dt className="font-medium text-gray-500">User</dt>
+              <dd>{selectedLog.user_email || (selectedLog.user_id ? `User #${selectedLog.user_id}` : 'System')}</dd>
             </div>
-
-            {totalLogs > 0 && (
-              <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="text-sm text-gray-600">
-                  Showing {startItem}-{endItem} of {totalLogs}
-                </div>
-                <div className="flex gap-2 items-center">
-                  <button
-                    onClick={() => handlePageChange(1)}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    First
-                  </button>
-                  <button
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    Previous
-                  </button>
-                  <div className="flex gap-1">
-                    {Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i).map((page) => (
-                      <button
-                        key={page}
-                        onClick={() => handlePageChange(page)}
-                        className={`px-3 py-1 border rounded-md ${
-                          page === currentPage
-                            ? 'bg-primary text-white border-primary'
-                            : 'border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    Next
-                  </button>
-                  <button
-                    onClick={() => handlePageChange(totalPages)}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    Last
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">Items per page:</label>
-                  <select
-                    value={pageSize}
-                    onChange={handlePageSizeChange}
-                    className="px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="20">20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                    <option value="200">200</option>
-                  </select>
-                </div>
-              </div>
-            )}
-          </>
+            <div>
+              <dt className="font-medium text-gray-500">Action</dt>
+              <dd><Badge color={ACTION_COLORS[selectedLog.action_type] || 'gray'}>{selectedLog.action_type}</Badge></dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-500">Entity</dt>
+              <dd>{selectedLog.entity_type}{selectedLog.entity_id ? ` #${selectedLog.entity_id}` : ''}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-500">Description</dt>
+              <dd className="break-words">{selectedLog.description || <Placeholder>No description</Placeholder>}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-500">IP Address</dt>
+              <dd>{selectedLog.ip_address || <Placeholder>N/A</Placeholder>}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-500">Timestamp</dt>
+              <dd>{formatDateTime(selectedLog.created_at)}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-500">Metadata</dt>
+              <dd>
+                {selectedLog.metadata ? (
+                  <pre className="mt-1 overflow-x-auto rounded-md bg-gray-50 p-3 font-mono text-xs">{formatMetadata(selectedLog.metadata)}</pre>
+                ) : (
+                  <Placeholder>None</Placeholder>
+                )}
+              </dd>
+            </div>
+          </dl>
         )}
-      </div>
-    </div>
+      </Modal>
+    </Page>
   );
 };
 
 export default History;
-

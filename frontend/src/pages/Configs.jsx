@@ -1,285 +1,204 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfigAPI } from '../services/api';
-import { Modal, AlertModal, ConfirmModal } from '../components/Modal';
+import { Modal } from '../components/Modal';
+import { ActionButton, Badge, Button, Card, DataTable, Input, LoadingState, Page, PageHeader, Placeholder } from '../components/ui';
+import { useConfirm, useToast } from '../contexts/UIContext';
+import { formatDateTime } from '../utils/format';
+
+const PREVIEW_LIMIT = 1500;
+
+/** Long text block with an expand toggle for very large values (resumes, prompts). */
+const TextBlock = ({ value }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!value) {
+    return (
+      <div className="rounded-md bg-gray-50 p-4 text-sm">
+        <Placeholder />
+      </div>
+    );
+  }
+
+  const isLong = value.length > PREVIEW_LIMIT;
+  const shown = expanded || !isLong ? value : `${value.slice(0, PREVIEW_LIMIT)}…`;
+
+  return (
+    <div className="rounded-md bg-gray-50 p-4">
+      <pre className="whitespace-pre-wrap break-words font-sans text-sm text-gray-800">{shown}</pre>
+      {isLong && (
+        <button type="button" onClick={() => setExpanded(!expanded)} className="mt-2 text-sm font-medium text-primary hover:text-primary-dark">
+          {expanded ? 'Show less' : `Show all (${value.length.toLocaleString()} characters)`}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const Configs = () => {
+  const toast = useToast();
+  const confirm = useConfirm();
+
   const [configs, setConfigs] = useState([]);
-  const [filteredConfigs, setFilteredConfigs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewEmail, setViewEmail] = useState(null);
   const [selectedConfig, setSelectedConfig] = useState(null);
   const [loadingConfig, setLoadingConfig] = useState(false);
-  const [alertOpen, setAlertOpen] = useState(false);
-  const [alertMessage, setAlertMessage] = useState('');
-  const [alertTitle, setAlertTitle] = useState('');
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmMessage, setConfirmMessage] = useState('');
-  const [confirmTitle, setConfirmTitle] = useState('');
-  const [confirmCallback, setConfirmCallback] = useState(null);
 
-  useEffect(() => {
-    loadConfigs();
-  }, []);
-
-  useEffect(() => {
-    filterConfigs();
-  }, [searchTerm, configs]);
-
-  const loadConfigs = async () => {
+  const loadConfigs = useCallback(async () => {
     try {
       setLoading(true);
       const data = await ConfigAPI.getAllConfigs();
       setConfigs(data.configs || []);
     } catch (error) {
-      showAlert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const filterConfigs = () => {
-    if (!searchTerm) {
-      setFilteredConfigs(configs);
-      return;
-    }
-    const filtered = configs.filter((config) =>
-      config.user_email.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setFilteredConfigs(filtered);
-  };
+  useEffect(() => {
+    loadConfigs();
+  }, [loadConfigs]);
 
-  const showAlert = (title, message) => {
-    setAlertTitle(title);
-    setAlertMessage(message);
-    setAlertOpen(true);
-  };
+  const filteredConfigs = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return configs;
+    return configs.filter((config) => config.user_email.toLowerCase().includes(term));
+  }, [configs, searchTerm]);
 
-  const showConfirm = (title, message, callback) => {
-    setConfirmTitle(title);
-    setConfirmMessage(message);
-    setConfirmCallback(() => callback);
-    setConfirmOpen(true);
-  };
-
-  const handleViewConfig = async (userEmail) => {
-    setViewModalOpen(true);
-    setLoadingConfig(true);
+  const handleView = async (userEmail) => {
+    setViewEmail(userEmail);
     setSelectedConfig(null);
-
+    setLoadingConfig(true);
     try {
       const data = await ConfigAPI.getConfig(userEmail);
       setSelectedConfig(data.config);
     } catch (error) {
-      showAlert('Error', `Failed to load configuration: ${error.message}`);
-      setViewModalOpen(false);
+      toast.error(`Failed to load configuration: ${error.message}`);
+      setViewEmail(null);
     } finally {
       setLoadingConfig(false);
     }
   };
 
-  const handleDeleteConfig = (userEmail) => {
-    showConfirm('Delete Configuration', `Are you sure you want to delete the configuration for ${userEmail}?`, async () => {
-      try {
-        await ConfigAPI.delete(userEmail);
-        showAlert('Success', 'Configuration deleted successfully!');
-        loadConfigs();
-      } catch (error) {
-        showAlert('Error', error.message);
-      }
+  const handleDelete = async (userEmail) => {
+    const ok = await confirm({
+      title: 'Delete configuration',
+      message: `Delete the configuration for ${userEmail}? The user will have to set up their prompt, resume and paths again.`,
+      confirmLabel: 'Delete',
+      danger: true,
     });
+    if (!ok) return;
+
+    try {
+      await ConfigAPI.delete(userEmail);
+      toast.success('Configuration deleted');
+      loadConfigs();
+    } catch (error) {
+      toast.error(error.message);
+    }
   };
 
-  return (
-    <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">User Configurations</h1>
-        <p className="text-gray-600">View user-specific configurations including prompts, resumes, templates, and folders</p>
-      </div>
+  const yesNo = (value) => <Badge color={value ? 'green' : 'gray'}>{value ? 'Yes' : 'No'}</Badge>;
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex gap-4 mb-4">
-          <input
-            type="text"
-            placeholder="Search by email..."
+  const columns = [
+    { key: 'user_email', label: 'User Email', className: 'whitespace-nowrap font-medium text-gray-900' },
+    { key: 'prompt', label: 'Prompt', render: (config) => yesNo(config.prompt) },
+    { key: 'resume', label: 'Resume', render: (config) => yesNo(config.resume) },
+    {
+      key: 'template_path',
+      label: 'Template Path',
+      className: 'max-w-xs break-all text-gray-500',
+      render: (config) => config.template_path || <Placeholder />,
+    },
+    {
+      key: 'folder_path',
+      label: 'Folder Path',
+      className: 'max-w-xs break-all text-gray-500',
+      render: (config) => config.folder_path || <Placeholder />,
+    },
+    {
+      key: 'updated_at',
+      label: 'Last Updated',
+      className: 'whitespace-nowrap text-gray-500',
+      render: (config) => formatDateTime(config.updated_at),
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (config) => (
+        <div className="flex gap-3">
+          <ActionButton onClick={() => handleView(config.user_email)}>View</ActionButton>
+          <ActionButton color="danger" onClick={() => handleDelete(config.user_email)}>Delete</ActionButton>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <Page>
+      <PageHeader
+        title="User Configurations"
+        description="Prompts, resumes, templates and folders configured by each user of the client application"
+        actions={<Button variant="secondary" onClick={loadConfigs}>Refresh</Button>}
+      />
+
+      <Card>
+        <div className="mb-4">
+          <Input
+            type="search"
+            placeholder="Search by email…"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+            onChange={(event) => setSearchTerm(event.target.value)}
+            aria-label="Search configurations"
           />
-          <button
-            onClick={loadConfigs}
-            className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
-          >
-            🔄 Refresh
-          </button>
         </div>
 
-        {loading ? (
-          <div className="text-center py-8">Loading configurations...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Has Prompt</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Has Resume</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Template Path</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Folder Path</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Updated</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredConfigs.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
-                      No configurations found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredConfigs.map((config) => (
-                    <tr key={config.user_email}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {config.user_email}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-1 text-xs rounded ${
-                            config.prompt
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {config.prompt ? '✓ Yes' : '✗ No'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-1 text-xs rounded ${
-                            config.resume
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {config.resume ? '✓ Yes' : '✗ No'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-wrap text-wrap text-sm text-gray-500">
-                        {config.template_path || <em>Not set</em>}
-                      </td>
-                      <td className="px-6 py-4 whitespace-wrap text-wrap text-sm text-gray-500">
-                        {config.folder_path || <em>Not set</em>}
-                      </td>
-                      <td className="px-6 py-4 whitespace-wrap text-wrap text-sm text-gray-500">
-                        {new Date(config.updated_at).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-wrap text-wrap text-sm font-medium">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleViewConfig(config.user_email)}
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() => handleDeleteConfig(config.user_email)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        <DataTable
+          columns={columns}
+          rows={filteredConfigs}
+          rowKey={(config) => config.user_email}
+          loading={loading}
+          loadingLabel="Loading configurations…"
+          emptyMessage={searchTerm ? 'No configurations match your search' : 'No configurations found'}
+        />
+      </Card>
 
-      <Modal
-        isOpen={viewModalOpen}
-        onClose={() => setViewModalOpen(false)}
-        title={selectedConfig ? `Configuration for ${selectedConfig.user_email || 'User'}` : 'Configuration'}
-      >
+      <Modal isOpen={Boolean(viewEmail)} onClose={() => setViewEmail(null)} title={`Configuration for ${viewEmail || ''}`} size="lg">
         {loadingConfig ? (
-          <div className="text-center py-8">Loading configuration...</div>
+          <LoadingState label="Loading configuration…" />
         ) : selectedConfig ? (
           <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold mb-2">📝 Prompt</h3>
-              <div className="bg-gray-50 p-4 rounded-md">
-                {selectedConfig.prompt ? (
-                  <pre className="whitespace-pre-wrap text-sm">{selectedConfig.prompt}</pre>
-                ) : (
-                  <em className="text-gray-500">Not set</em>
-                )}
+            <section>
+              <h3 className="mb-2 font-semibold text-gray-900">📝 Prompt</h3>
+              <TextBlock value={selectedConfig.prompt} />
+            </section>
+            <section>
+              <h3 className="mb-2 font-semibold text-gray-900">📄 Resume</h3>
+              <TextBlock value={selectedConfig.resume} />
+            </section>
+            <section>
+              <h3 className="mb-2 font-semibold text-gray-900">📋 Template Path</h3>
+              <div className="break-all rounded-md bg-gray-50 p-4 text-sm">{selectedConfig.template_path || <Placeholder />}</div>
+            </section>
+            <section>
+              <h3 className="mb-2 font-semibold text-gray-900">📁 Folder Path</h3>
+              <div className="break-all rounded-md bg-gray-50 p-4 text-sm">{selectedConfig.folder_path || <Placeholder />}</div>
+            </section>
+            <section>
+              <h3 className="mb-2 font-semibold text-gray-900">🕒 Timestamps</h3>
+              <div className="space-y-1 rounded-md bg-gray-50 p-4 text-sm">
+                <p><strong>Created:</strong> {formatDateTime(selectedConfig.created_at) || <Placeholder />}</p>
+                <p><strong>Updated:</strong> {formatDateTime(selectedConfig.updated_at) || <Placeholder />}</p>
               </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold mb-2">📄 Resume</h3>
-              <div className="bg-gray-50 p-4 rounded-md">
-                {selectedConfig.resume ? (
-                  <pre className="whitespace-pre-wrap text-sm">
-                    {selectedConfig.resume.length > 500
-                      ? selectedConfig.resume.substring(0, 500) + '...'
-                      : selectedConfig.resume}
-                  </pre>
-                ) : (
-                  <em className="text-gray-500">Not set</em>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold mb-2">📋 Template Path</h3>
-              <div className="bg-gray-50 p-4 rounded-md">
-                {selectedConfig.template_path || <em className="text-gray-500">Not set</em>}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold mb-2">📁 Folder Path</h3>
-              <div className="bg-gray-50 p-4 rounded-md">
-                {selectedConfig.folder_path || <em className="text-gray-500">Not set</em>}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold mb-2">🕒 Timestamps</h3>
-              <div className="bg-gray-50 p-4 rounded-md space-y-1">
-                <p>
-                  <strong>Created:</strong> {new Date(selectedConfig.created_at).toLocaleString()}
-                </p>
-                <p>
-                  <strong>Updated:</strong> {new Date(selectedConfig.updated_at).toLocaleString()}
-                </p>
-              </div>
-            </div>
+            </section>
           </div>
         ) : (
-          <div className="text-center py-8 text-gray-500">No configuration data</div>
+          <div className="py-8 text-center text-gray-500">No configuration data</div>
         )}
       </Modal>
-
-      <AlertModal
-        isOpen={alertOpen}
-        onClose={() => setAlertOpen(false)}
-        title={alertTitle}
-        message={alertMessage}
-      />
-
-      <ConfirmModal
-        isOpen={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        title={confirmTitle}
-        message={confirmMessage}
-        onConfirm={confirmCallback}
-      />
-    </div>
+    </Page>
   );
 };
 

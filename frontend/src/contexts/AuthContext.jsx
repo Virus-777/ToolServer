@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AdminAuthAPI, getToken, getUser } from '../services/api';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { AdminAuthAPI, UNAUTHORIZED_EVENT, getToken, getUser } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -12,57 +12,56 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUserState] = useState(() => getUser());
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
+  const clearSession = useCallback(() => {
+    AdminAuthAPI.logout();
+    setUserState(null);
+    setIsAuthenticated(false);
+  }, []);
+
+  // Validate the stored session once on start-up and react to rejected tokens
   useEffect(() => {
-    const checkAuth = async () => {
-      const token = getToken();
-      const storedUser = getUser();
+    let cancelled = false;
 
-      if (token && storedUser) {
+    const checkAuth = async () => {
+      if (getToken() && getUser()) {
         try {
-          await AdminAuthAPI.verify();
-          setUser(storedUser);
-          setIsAuthenticated(true);
+          const data = await AdminAuthAPI.verify();
+          if (!cancelled) {
+            setUserState(data.user || getUser());
+            setIsAuthenticated(true);
+          }
         } catch (error) {
           console.error('Token verification failed:', error);
-          AdminAuthAPI.logout();
-          setUser(null);
-          setIsAuthenticated(false);
+          if (!cancelled) clearSession();
         }
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     };
 
     checkAuth();
+
+    window.addEventListener(UNAUTHORIZED_EVENT, clearSession);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(UNAUTHORIZED_EVENT, clearSession);
+    };
+  }, [clearSession]);
+
+  const login = useCallback(async (email, password) => {
+    const data = await AdminAuthAPI.login(email, password);
+    setUserState(data.user);
+    setIsAuthenticated(true);
+    return data;
   }, []);
 
-  const login = async (email, password) => {
-    try {
-      const data = await AdminAuthAPI.login(email, password);
-      setUser(data.user);
-      setIsAuthenticated(true);
-      return data;
-    } catch (error) {
-      throw error;
-    }
-  };
-
-  const logout = () => {
-    AdminAuthAPI.logout();
-    setUser(null);
-    setIsAuthenticated(false);
-  };
-
-  const value = {
-    user,
-    isAuthenticated,
-    loading,
-    login,
-    logout,
-  };
+  const value = useMemo(
+    () => ({ user, isAuthenticated, loading, login, logout: clearSession }),
+    [user, isAuthenticated, loading, login, clearSession]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
