@@ -129,6 +129,71 @@ async function apiRequest(endpoint, { skipAuth = false, headers = {}, body, ...o
   return data;
 }
 
+/**
+ * multipart/form-data upload through XMLHttpRequest so the caller can show
+ * progress and cancel. Resolves/rejects exactly like `apiRequest`.
+ *
+ * @param {string} endpoint
+ * @param {FormData} formData
+ * @param {object} [options]
+ * @param {(percent: number) => void} [options.onProgress]
+ * @param {AbortSignal} [options.signal]
+ */
+function uploadRequest(endpoint, formData, { onProgress, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const token = getToken();
+
+    xhr.open('POST', `${API_BASE}${endpoint}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      let data = {};
+      const contentType = xhr.getResponseHeader('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          data = {};
+        }
+      } else if (xhr.responseText) {
+        data = { error: xhr.responseText };
+      }
+
+      if (xhr.status === 401 && token) {
+        removeToken();
+        window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+        reject(new ApiError('Your session has expired. Please log in again.', 401, data));
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ApiError(data.error || data.message || `Request failed with status ${xhr.status}`, xhr.status, data));
+        return;
+      }
+      resolve(data);
+    };
+
+    xhr.onerror = () => reject(new ApiError('Unable to reach the server. Please check your connection and try again.', 0));
+    xhr.onabort = () => reject(new ApiError('Upload cancelled', 0, { aborted: true }));
+
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      signal.addEventListener('abort', () => xhr.abort(), { once: true });
+    }
+
+    xhr.send(formData);
+  });
+}
+
 export const AdminAuthAPI = {
   register(name, email, password, confirm_password) {
     return apiRequest('/admin/register', { method: 'POST', body: { name, email, password, confirm_password }, skipAuth: true });
@@ -239,4 +304,27 @@ export const AssemblyTokenAPI = {
   create: (user_id, api_key) => apiRequest('/assembly-tokens/', { method: 'POST', body: { user_id, api_key } }),
   update: (id, user_id, api_key) => apiRequest(`/assembly-tokens/${id}`, { method: 'PUT', body: { user_id, api_key } }),
   delete: (id) => apiRequest(`/assembly-tokens/${id}`, { method: 'DELETE' }),
+};
+
+/** Releases of the RobustTailor client application (see /api/app-updates). */
+export const AppUpdatesAPI = {
+  getAll: () => apiRequest('/app-updates/'),
+  getById: (id) => apiRequest(`/app-updates/${id}`),
+  getLatest: () => apiRequest('/app-updates/latest', { skipAuth: true }),
+  /**
+   * @param {{ version: string, changelog?: string, mandatory?: boolean, file: File }} release
+   * @param {{ onProgress?: (percent: number) => void, signal?: AbortSignal }} [options]
+   */
+  upload: ({ version, changelog = '', mandatory = false, file }, options) => {
+    const formData = new FormData();
+    formData.append('version', version);
+    formData.append('changelog', changelog);
+    formData.append('mandatory', String(Boolean(mandatory)));
+    formData.append('file', file);
+    return uploadRequest('/app-updates/', formData, options);
+  },
+  update: (id, { changelog, mandatory }) => apiRequest(`/app-updates/${id}`, { method: 'PUT', body: { changelog, mandatory } }),
+  delete: (id) => apiRequest(`/app-updates/${id}`, { method: 'DELETE' }),
+  /** Absolute URL of the public endpoint the client polls for updates. */
+  latestUrl: () => new URL(`${API_BASE}/app-updates/latest`, window.location.origin).href,
 };

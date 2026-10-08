@@ -23,6 +23,7 @@ const API_ROUTERS = {
     '/api/history': require('./routers/history.router'),
     '/api/allowed-emails': require('./routers/allowed-email.router'),
     '/api/assembly-tokens': require('./routers/assembly-token.router'),
+    '/api/app-updates': require('./routers/app-update.router'),         // RobustTailor client releases
 };
 
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;

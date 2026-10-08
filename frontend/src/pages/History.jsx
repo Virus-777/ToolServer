@@ -23,6 +23,7 @@ const ENTITY_OPTIONS = [
   { value: 'config', label: 'Config' },
   { value: 'allowed_email', label: 'Allowed Email' },
   { value: 'assembly_token', label: 'Assembly Token' },
+  { value: 'app_update', label: 'App Update' },
 ];
 
 const ACTION_COLORS = {

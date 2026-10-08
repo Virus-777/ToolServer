@@ -6,6 +6,9 @@ package-lock.json
 .env
 config/production.config.js
 
+# Uploaded client releases (served by /api/app-updates)
+uploads/
+
 # Logs
 logs/
 *.log

@@ -15,6 +15,7 @@ const Jobs = lazy(() => import('./pages/Jobs'));
 const History = lazy(() => import('./pages/History'));
 const AllowedEmails = lazy(() => import('./pages/AllowedEmails'));
 const AssemblyTokens = lazy(() => import('./pages/AssemblyTokens'));
+const AppUpdates = lazy(() => import('./pages/AppUpdates'));
 
 const FullScreenLoader = () => (
   <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -83,6 +84,7 @@ const AdminLayout = () => {
               <Route path="/history" element={<History />} />
               <Route path="/allowed-emails" element={<AllowedEmails />} />
               <Route path="/assembly-tokens" element={<AssemblyTokens />} />
+              <Route path="/app-updates" element={<AppUpdates />} />
               <Route path="*" element={<Navigate to="/users" replace />} />
             </Routes>
           </Suspense>

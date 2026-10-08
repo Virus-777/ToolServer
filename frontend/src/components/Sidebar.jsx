@@ -10,6 +10,7 @@ export const NAV_ITEMS = [
   { to: '/history', label: 'History', icon: '📜' },
   { to: '/allowed-emails', label: 'Allowed Emails', icon: '✉️' },
   { to: '/assembly-tokens', label: 'Assembly Tokens', icon: '🔑' },
+  { to: '/app-updates', label: 'App Updates', icon: '📦' },
 ];
 
 /**

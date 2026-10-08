@@ -2,7 +2,7 @@
 
 Backend API and admin dashboard ("KingMaker") for the TailorResume / JobBidAssist client application.
 It manages users and their access, the daily job feed, block lists, per-user configuration,
-the GPT model selection and an audit log.
+the GPT model selection, releases of the RobustTailor client application and an audit log.
 
 ## Tech Stack
 
@@ -53,6 +53,9 @@ embedded in the executable). See `.env.example` for the full list.
 | `CORS_ORIGIN`                              | any origin                     | Comma separated allow-list                           |
 | `BODY_LIMIT`                               | `500kb`                        | Max request body                                     |
 | `OLLAMA_BASE_URL`, `OLLAMA_API_KEY`        | `http://127.0.0.1:11434/v1`    | Gateway behind `POST /api/gpt/responses`             |
+| `APP_UPDATES_DIR`                          | `uploads/app-updates`          | Storage for uploaded client releases (relative to cwd) |
+| `APP_UPDATE_MAX_FILE_SIZE_MB`              | `500`                          | Upload limit for a release file                      |
+| `PUBLIC_BASE_URL`                          | derived from the request       | Origin used in release download URLs (reverse proxy) |
 | `STARTUP_AUTH_ENABLED` (+ `STARTUP_PASSWORD…`) | off                        | Optional interactive password prompt at start-up     |
 | `NODE_ENV`                                 |                                | `production` switches request logs to `combined`     |
 
@@ -81,7 +84,10 @@ utils/
   auth.middleware.js      Validation + passport wrappers + allowed-email guard
   history.js              logHistory(req, {...}) audit helper (never throws)
   url.utils.js            Job URL normalisation (duplicate / block matching)
+  version.utils.js        Release version validation / comparison
+  app-update.storage.js   Release file storage (APP_UPDATES_DIR), hashing, cleanup
   date.utils.js, utils.js, ip.utils.js, startup-auth.js
+uploads/app-updates/      Uploaded client releases (created at runtime, not in git)
 scripts/                  CLI helpers (bid import, password hash)
 frontend/                 React dashboard source (built into public/)
 public/                   Built dashboard served by Express
@@ -114,6 +120,7 @@ Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "m
 | History          | `GET /api/history`, `GET /api/history/:id`                                                         | admin                         |
 | Allowed emails   | `GET|POST /api/allowed-emails`, `GET|PUT|DELETE /api/allowed-emails/:id`                           | admin                         |
 | Assembly tokens  | `GET|POST /api/assembly-tokens`, `GET|PUT|DELETE /api/assembly-tokens/:id`                         | admin                         |
+| App updates      | `GET /api/app-updates/latest`, `GET /api/app-updates/latest/download`, `GET /api/app-updates/:id/download`, `GET|POST /api/app-updates`, `GET|PUT|DELETE /api/app-updates/:id` | public (latest + download) / admin |
 
 ### Jobs
 
@@ -145,13 +152,53 @@ Jobs whose company or URL matches the block list are rejected with `403`.
 (prices in USD per 1M tokens). The selected model is stored in the `settings` table under
 `selected_gpt_model` and read by the client through the public `GET /api/gpt/selected`.
 
+### App updates (RobustTailor releases)
+
+Administrators upload new builds of the RobustTailor client from the dashboard ("App Updates").
+The client polls the public feed and downloads the file from the URL it returns:
+
+```http
+GET /api/app-updates/latest?current=1.1.0      # `current` is optional
+```
+
+```json
+{
+  "id": 7,
+  "app": "RobustTailor",
+  "version": "1.2.0",
+  "changelog": "- Fixed ...
+- Added ...",
+  "mandatory": false,
+  "file_name": "RobustTailor-Setup.exe",
+  "file_size": 48213504,
+  "sha256": "9f2c…",
+  "download_path": "/api/app-updates/7/download",
+  "download_url": "https://api.example.com/api/app-updates/7/download",
+  "download_count": 12,
+  "published_at": "2026-10-08T10:15:00.000Z",
+  "updated_at": "2026-10-08T10:15:00.000Z",
+  "current_version": "1.1.0",
+  "update_available": true
+}
+```
+
+`404` means nothing has been published yet. `GET /api/app-updates/latest/download` always streams
+the newest file; the download endpoints support range requests and send the checksum in
+`X-Checksum-Sha256`. "Latest" is the highest version number, not the most recent upload.
+
+Uploading (admin token) is `multipart/form-data` with the fields `file` (the installer / archive),
+`version` (2 to 4 numeric segments, e.g. `1.2.0`, unique), optional `changelog` and `mandatory`
+(`true`/`false`). `PUT /api/app-updates/:id` edits only `changelog` and `mandatory`; deleting a
+release removes its file. Files are stored as `RobustTailor-<version><ext>` in `APP_UPDATES_DIR`,
+so back that directory up together with the database.
+
 ## Database
 
 The schema is created and migrated automatically on start-up (`database/setup.js`); every
 statement is idempotent, so existing data is never touched. Tables: `users`, `settings`,
 `user_configs`, `jobs` (incl. `industry` and `summary` columns added via
 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`), `block_list`, `history`, `allowed_emails`,
-`assembly_tokens`. Indexes cover the hot paths (`jobs(date, industry)`, `history(created_at)`,
+`assembly_tokens`, `app_updates`. Indexes cover the hot paths (`jobs(date, industry)`, `history(created_at)`,
 `history(user_id)`).
 
 ## Building the Executable

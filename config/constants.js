@@ -39,6 +39,7 @@ const HISTORY_ENTITIES = Object.freeze({
     CONFIG: 'config',
     ALLOWED_EMAIL: 'allowed_email',
     ASSEMBLY_TOKEN: 'assembly_token',
+    APP_UPDATE: 'app_update',
 });
 
 const USER_ROLES = Object.freeze({ ADMIN: 'admin', USER: 'user' });
@@ -57,6 +58,19 @@ const PAGINATION = Object.freeze({
 // Time zone that defines "today" for the jobs feed consumed by the client app
 const JOBS_TIME_ZONE = 'America/Los_Angeles';
 
+// Client application releases served by /api/app-updates
+const APP_UPDATE = Object.freeze({
+    // Name reported by /api/app-updates/latest and stored in app_updates.app_name
+    APP_NAME: 'RobustTailor',
+    // Where uploaded release files live when APP_UPDATES_DIR is not set
+    // (relative to the working directory so it also works for the pkg executable)
+    DEFAULT_DIR: 'uploads/app-updates',
+    // Upload size cap when APP_UPDATE_MAX_FILE_SIZE_MB is not set
+    DEFAULT_MAX_FILE_SIZE_MB: 500,
+    // Multipart field that carries the release file in POST /api/app-updates
+    FILE_FIELD: 'file',
+});
+
 module.exports = {
     INDUSTRY,
     INDUSTRY_VALUES,
@@ -69,4 +83,5 @@ module.exports = {
     USER_STATUS,
     PAGINATION,
     JOBS_TIME_ZONE,
+    APP_UPDATE,
 };

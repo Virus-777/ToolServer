@@ -104,6 +104,22 @@ const SCHEMA_STATEMENTS = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+    // Uploaded client application releases (files live in APP_UPDATES_DIR, see utils/app-update.storage.js)
+    `CREATE TABLE IF NOT EXISTS app_updates (
+        id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        app_name VARCHAR(100) NOT NULL,
+        version VARCHAR(50) NOT NULL,
+        changelog TEXT,
+        file_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        file_size BIGINT NOT NULL,
+        sha256 VARCHAR(64) NOT NULL,
+        mandatory BOOLEAN NOT NULL DEFAULT FALSE,
+        download_count INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (app_name, version)
+    )`,
     // Indexes backing the hot query paths (jobs feed by date, history listing)
     `CREATE INDEX IF NOT EXISTS idx_jobs_date_industry ON jobs (date, industry)`,
     `CREATE INDEX IF NOT EXISTS idx_history_created_at ON history (created_at DESC)`,

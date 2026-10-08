@@ -41,6 +41,21 @@ export const truncate = (text, max) => {
 /** Collapse whitespace/newlines so a value fits into one spreadsheet cell. */
 export const singleLine = (text) => (text || '').replace(/\s+/g, ' ').trim();
 
+/** Human readable file size ("12.4 MB"). */
+export const formatBytes = (bytes) => {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return '';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value / 1024;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(size >= 100 ? 0 : 1)} ${units[unit]}`;
+};
+
 export const maskSecret = (value) => {
   if (!value) return '';
   if (value.length <= 8) return '••••••••';
