@@ -7,10 +7,13 @@ const morgan = require('morgan');
 const passport = require('./config/passport');
 const db = require('./database/db');
 const { handleError } = require('./utils/utils');
+const appRelease = require('./routers/app-release.router');
 
 // NOTE: the environment must be loaded (config/env.js) before this module is required.
 
 const API_ROUTERS = {
+    '/api/admin/app/releases': appRelease.adminRouter,                 // RobustTailor release management
+    '/api/app': appRelease.updateRouter,                               // RobustTailor updater manifest (public)
     '/api/auth': require('./routers/auth.router'),                     // legacy auth + user management
     '/api/admin': require('./routers/admin-auth.router'),              // dashboard authentication
     '/api/user': require('./routers/user-auth.router'),                // client application authentication
@@ -23,7 +26,6 @@ const API_ROUTERS = {
     '/api/history': require('./routers/history.router'),
     '/api/allowed-emails': require('./routers/allowed-email.router'),
     '/api/assembly-tokens': require('./routers/assembly-token.router'),
-    '/api/app-updates': require('./routers/app-update.router'),         // RobustTailor client releases
 };
 
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
@@ -80,7 +82,9 @@ function createApp() {
 
     app.disable('x-powered-by');
     app.use(passport.initialize());
-    app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+    if (process.env.NODE_ENV !== 'test') {
+        app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+    }
     app.use(cors({ origin: parseCorsOrigin(process.env.CORS_ORIGIN) }));
     app.use(express.json({ limit: bodyLimit }));
     app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
@@ -91,6 +95,9 @@ function createApp() {
         app.use(prefix, router);
     }
     app.use('/api', (req, res) => handleError(res, 404, 'Route not found'));
+
+    // Signed RobustTailor installers (public, immutable, streamed from RELEASES_DIR)
+    app.use('/releases', appRelease.artifactRouter);
 
     // Built dashboard (frontend/ -> public/)
     app.use(express.static(publicDir, { index: false, setHeaders: setStaticCacheHeaders }));

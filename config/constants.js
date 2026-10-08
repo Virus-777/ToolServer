@@ -39,7 +39,7 @@ const HISTORY_ENTITIES = Object.freeze({
     CONFIG: 'config',
     ALLOWED_EMAIL: 'allowed_email',
     ASSEMBLY_TOKEN: 'assembly_token',
-    APP_UPDATE: 'app_update',
+    APP_RELEASE: 'app_release',
 });
 
 const USER_ROLES = Object.freeze({ ADMIN: 'admin', USER: 'user' });
@@ -58,17 +58,20 @@ const PAGINATION = Object.freeze({
 // Time zone that defines "today" for the jobs feed consumed by the client app
 const JOBS_TIME_ZONE = 'America/Los_Angeles';
 
-// Client application releases served by /api/app-updates
-const APP_UPDATE = Object.freeze({
-    // Name reported by /api/app-updates/latest and stored in app_updates.app_name
+// RobustTailor desktop app releases (Tauri updater) served by /api/app/update and /releases
+const APP_RELEASE = Object.freeze({
     APP_NAME: 'RobustTailor',
-    // Where uploaded release files live when APP_UPDATES_DIR is not set
-    // (relative to the working directory so it also works for the pkg executable)
-    DEFAULT_DIR: 'uploads/app-updates',
-    // Upload size cap when APP_UPDATE_MAX_FILE_SIZE_MB is not set
+    TARGETS: Object.freeze(['windows']),
+    // Updater arch -> suffix the Tauri bundler puts in the installer name
+    ARCH_SUFFIX: Object.freeze({ x86_64: 'x64', aarch64: 'arm64' }),
+    DEFAULT_TARGET: 'windows',
+    DEFAULT_ARCH: 'x86_64',
+    // Installer storage when RELEASES_DIR is not set (relative to the working directory)
+    DEFAULT_DIR: 'releases',
+    // Upload size cap when APP_RELEASE_MAX_FILE_SIZE_MB is not set
     DEFAULT_MAX_FILE_SIZE_MB: 500,
-    // Multipart field that carries the release file in POST /api/app-updates
-    FILE_FIELD: 'file',
+    // Anything smaller cannot be a real installer
+    MIN_INSTALLER_BYTES: 1024 * 1024,
 });
 
 module.exports = {
@@ -83,5 +86,5 @@ module.exports = {
     USER_STATUS,
     PAGINATION,
     JOBS_TIME_ZONE,
-    APP_UPDATE,
+    APP_RELEASE,
 };

@@ -306,25 +306,48 @@ export const AssemblyTokenAPI = {
   delete: (id) => apiRequest(`/assembly-tokens/${id}`, { method: 'DELETE' }),
 };
 
-/** Releases of the RobustTailor client application (see /api/app-updates). */
-export const AppUpdatesAPI = {
-  getAll: () => apiRequest('/app-updates/'),
-  getById: (id) => apiRequest(`/app-updates/${id}`),
-  getLatest: () => apiRequest('/app-updates/latest', { skipAuth: true }),
+/** RobustTailor desktop releases for the Tauri updater (see /api/app/update and /api/admin/app/releases). */
+export const AppReleasesAPI = {
+  getAll: () => apiRequest('/admin/app/releases/'),
   /**
-   * @param {{ version: string, changelog?: string, mandatory?: boolean, file: File }} release
+   * @param {object} release { version, target, arch, notes, pub_date, published, installer: File, signatureFile?: File, signatureText?: string }
    * @param {{ onProgress?: (percent: number) => void, signal?: AbortSignal }} [options]
    */
-  upload: ({ version, changelog = '', mandatory = false, file }, options) => {
+  upload: ({ version, target, arch, notes = '', pub_date = '', published = true, installer, signatureFile, signatureText = '' }, options) => {
     const formData = new FormData();
     formData.append('version', version);
-    formData.append('changelog', changelog);
-    formData.append('mandatory', String(Boolean(mandatory)));
-    formData.append('file', file);
-    return uploadRequest('/app-updates/', formData, options);
+    if (target) formData.append('target', target);
+    if (arch) formData.append('arch', arch);
+    if (notes) formData.append('notes', notes);
+    if (pub_date) formData.append('pub_date', pub_date);
+    formData.append('published', String(Boolean(published)));
+    formData.append('installer', installer, installer.name);
+    if (signatureFile) {
+      formData.append('signature', signatureFile, signatureFile.name);
+    } else {
+      formData.append('signature', signatureText);
+    }
+    return uploadRequest('/admin/app/releases/', formData, options);
   },
-  update: (id, { changelog, mandatory }) => apiRequest(`/app-updates/${id}`, { method: 'PUT', body: { changelog, mandatory } }),
-  delete: (id) => apiRequest(`/app-updates/${id}`, { method: 'DELETE' }),
-  /** Absolute URL of the public endpoint the client polls for updates. */
-  latestUrl: () => new URL(`${API_BASE}/app-updates/latest`, window.location.origin).href,
+  /** @param {{ published?: boolean, notes?: string }} changes */
+  patch: (id, changes) => apiRequest(`/admin/app/releases/${id}`, { method: 'PATCH', body: changes }),
+  delete: (id) => apiRequest(`/admin/app/releases/${id}`, { method: 'DELETE' }),
+  /** Absolute URL the desktop app calls for a given installed version. */
+  updateCheckUrl: (target, arch, version) =>
+    new URL(`${API_BASE}/app/update/${target}/${arch}/${encodeURIComponent(version)}`, window.location.origin).href,
+  /** Public update check: resolves with the manifest, or null when the server answers 204. */
+  async checkUpdate(target, arch, version) {
+    let response;
+    try {
+      response = await fetch(`${API_BASE}/app/update/${target}/${arch}/${encodeURIComponent(version)}`, { headers: { Accept: 'application/json' } });
+    } catch {
+      throw new ApiError('Unable to reach the server. Please check your connection and try again.', 0);
+    }
+    if (response.status === 204) return null;
+    const data = await parseBody(response);
+    if (!response.ok) {
+      throw new ApiError(data.error || `Request failed with status ${response.status}`, response.status, data);
+    }
+    return data;
+  },
 };

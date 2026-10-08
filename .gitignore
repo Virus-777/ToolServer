@@ -6,8 +6,8 @@ package-lock.json
 .env
 config/production.config.js
 
-# Uploaded client releases (served by /api/app-updates)
-uploads/
+# Uploaded RobustTailor installers (served by /releases)
+releases/
 
 # Logs
 logs/

@@ -2,7 +2,7 @@
 
 Backend API and admin dashboard ("KingMaker") for the TailorResume / JobBidAssist client application.
 It manages users and their access, the daily job feed, block lists, per-user configuration,
-the GPT model selection, releases of the RobustTailor client application and an audit log.
+the GPT model selection, online updates for the RobustTailor desktop app and an audit log.
 
 ## Tech Stack
 
@@ -33,7 +33,7 @@ npm run frontend:dev        # Vite dev server on http://localhost:3003 (proxies 
 npm run frontend:build      # rebuilds public/ (commit the result, the server serves it)
 ```
 
-Other scripts: `npm run check` (syntax check), `npm run setup` (schema only),
+Other scripts: `npm test` (API tests, no database needed), `npm run check` (syntax check), `npm run setup` (schema only),
 `npm run import:bid [file.xlsx]` (import jobs from a bid spreadsheet), `npm run build:win`
 (standalone executable, see below).
 
@@ -53,9 +53,9 @@ embedded in the executable). See `.env.example` for the full list.
 | `CORS_ORIGIN`                              | any origin                     | Comma separated allow-list                           |
 | `BODY_LIMIT`                               | `500kb`                        | Max request body                                     |
 | `OLLAMA_BASE_URL`, `OLLAMA_API_KEY`        | `http://127.0.0.1:11434/v1`    | Gateway behind `POST /api/gpt/responses`             |
-| `APP_UPDATES_DIR`                          | `uploads/app-updates`          | Storage for uploaded client releases (relative to cwd) |
-| `APP_UPDATE_MAX_FILE_SIZE_MB`              | `500`                          | Upload limit for a release file                      |
-| `PUBLIC_BASE_URL`                          | derived from the request       | Origin used in release download URLs (reverse proxy) |
+| `RELEASES_DIR`                             | `releases`                     | Storage for uploaded RobustTailor installers (relative to cwd) |
+| `APP_RELEASE_MAX_FILE_SIZE_MB`             | `500`                          | Upload limit for an installer                        |
+| `PUBLIC_BASE_URL`                          | derived from the request       | `https://` origin used in installer URLs (set behind a reverse proxy) |
 | `STARTUP_AUTH_ENABLED` (+ `STARTUP_PASSWORD…`) | off                        | Optional interactive password prompt at start-up     |
 | `NODE_ENV`                                 |                                | `production` switches request logs to `combined`     |
 
@@ -84,10 +84,10 @@ utils/
   auth.middleware.js      Validation + passport wrappers + allowed-email guard
   history.js              logHistory(req, {...}) audit helper (never throws)
   url.utils.js            Job URL normalisation (duplicate / block matching)
-  version.utils.js        Release version validation / comparison
-  app-update.storage.js   Release file storage (APP_UPDATES_DIR), hashing, cleanup
+  release.storage.js      Installer storage (RELEASES_DIR), naming, hashing, cleanup
   date.utils.js, utils.js, ip.utils.js, startup-auth.js
-uploads/app-updates/      Uploaded client releases (created at runtime, not in git)
+test/                     node:test suites (npm test)
+releases/                 Uploaded RobustTailor installers (created at runtime, not in git)
 scripts/                  CLI helpers (bid import, password hash)
 frontend/                 React dashboard source (built into public/)
 public/                   Built dashboard served by Express
@@ -120,7 +120,8 @@ Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "m
 | History          | `GET /api/history`, `GET /api/history/:id`                                                         | admin                         |
 | Allowed emails   | `GET|POST /api/allowed-emails`, `GET|PUT|DELETE /api/allowed-emails/:id`                           | admin                         |
 | Assembly tokens  | `GET|POST /api/assembly-tokens`, `GET|PUT|DELETE /api/assembly-tokens/:id`                         | admin                         |
-| App updates      | `GET /api/app-updates/latest`, `GET /api/app-updates/latest/download`, `GET /api/app-updates/:id/download`, `GET|POST /api/app-updates`, `GET|PUT|DELETE /api/app-updates/:id` | public (latest + download) / admin |
+| App updates      | `GET /api/app/update/:target/:arch/:currentVersion`, `GET /releases/:filename`                   | public                        |
+| App releases     | `GET|POST /api/admin/app/releases`, `PATCH|DELETE /api/admin/app/releases/:id`                     | admin                         |
 
 ### Jobs
 
@@ -152,45 +153,91 @@ Jobs whose company or URL matches the block list are rejected with `403`.
 (prices in USD per 1M tokens). The selected model is stored in the `settings` table under
 `selected_gpt_model` and read by the client through the public `GET /api/gpt/selected`.
 
-### App updates (RobustTailor releases)
+### RobustTailor online updates (Tauri updater)
 
-Administrators upload new builds of the RobustTailor client from the dashboard ("App Updates").
-The client polls the public feed and downloads the file from the URL it returns:
+The RobustTailor desktop app (Tauri 2, `tauri-plugin-updater`) checks for updates against this
+server and downloads minisign-signed NSIS installers from it. The contract is fixed by the
+client; do not change the URL shape or the JSON field names.
+
+**Update check** (public, the app sends no token):
 
 ```http
-GET /api/app-updates/latest?current=1.1.0      # `current` is optional
+GET /api/app/update/:target/:arch/:currentVersion      e.g. /api/app/update/windows/x86_64/2.0.0
 ```
+
+- `204 No Content` when no *published* release is strictly newer than `currentVersion`
+  (semver comparison, prereleases ordered per semver, build metadata ignored, leading `v`
+  tolerated), and for an unknown target/arch.
+- `400 { "error": "invalid version" }` when `currentVersion` is not semver.
+- `200` with `Cache-Control: no-cache` and the newest newer release (a user on 2.0.0 jumps
+  straight to the newest version, installers are full installs):
 
 ```json
 {
-  "id": 7,
-  "app": "RobustTailor",
-  "version": "1.2.0",
-  "changelog": "- Fixed ...
-- Added ...",
-  "mandatory": false,
-  "file_name": "RobustTailor-Setup.exe",
-  "file_size": 48213504,
-  "sha256": "9f2c…",
-  "download_path": "/api/app-updates/7/download",
-  "download_url": "https://api.example.com/api/app-updates/7/download",
-  "download_count": 12,
-  "published_at": "2026-10-08T10:15:00.000Z",
-  "updated_at": "2026-10-08T10:15:00.000Z",
-  "current_version": "1.1.0",
-  "update_available": true
+  "version": "2.1.0",
+  "notes": "## Changes\n- Faster PDF export\n- Fixed bold runs",
+  "pub_date": "2026-11-02T09:30:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "untrusted comment: signature from tauri secret key\nRUQ…\ntrusted comment: …\n…\n",
+      "url": "https://link.kingmakertech.io/releases/RobustTailor_2.1.0_x64-setup.exe"
+    }
+  }
 }
 ```
 
-`404` means nothing has been published yet. `GET /api/app-updates/latest/download` always streams
-the newest file; the download endpoints support range requests and send the checksum in
-`X-Checksum-Sha256`. "Latest" is the highest version number, not the most recent upload.
+`notes` and `pub_date` are omitted when not set; `pub_date` is always a full RFC 3339 timestamp.
+`signature` is the verbatim content of the `.sig` file. Supported platforms: `windows-x86_64`
+(installer suffix `x64`) and `windows-aarch64` (suffix `arm64`).
 
-Uploading (admin token) is `multipart/form-data` with the fields `file` (the installer / archive),
-`version` (2 to 4 numeric segments, e.g. `1.2.0`, unique), optional `changelog` and `mandatory`
-(`true`/`false`). `PUT /api/app-updates/:id` edits only `changelog` and `mandatory`; deleting a
-release removes its file. Files are stored as `RobustTailor-<version><ext>` in `APP_UPDATES_DIR`,
-so back that directory up together with the database.
+**Installer hosting** (public): `GET /releases/:filename` streams the uploaded installer from
+`RELEASES_DIR` with `Content-Type: application/octet-stream`, `Content-Length`, range support and
+`Cache-Control: public, max-age=31536000, immutable`. Released artifacts stay available forever;
+only unpublished releases can be deleted. Set `PUBLIC_BASE_URL=https://link.kingmakertech.io` so
+the manifest carries absolute `https://` URLs behind the reverse proxy.
+
+**Publishing a release** (admin token):
+
+1. Build the app: `npm run tauri build` produces `RobustTailor_<version>_x64-setup.exe` and
+   `RobustTailor_<version>_x64-setup.exe.sig` under `src-tauri/target/release/bundle/nsis/`.
+2. Open the dashboard page **App Releases** → **Publish Release**, pick the installer and the
+   `.sig` file, enter the version (must match the file name), optional notes / release date, and
+   upload. Or from the command line:
+
+```bash
+curl -X POST https://link.kingmakertech.io/api/admin/app/releases \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -F version=2.1.0 \
+  -F "notes=## Changes
+- Faster PDF export" \
+  -F pub_date=2026-11-02T09:30:00Z \
+  -F installer=@RobustTailor_2.1.0_x64-setup.exe \
+  -F signature=@RobustTailor_2.1.0_x64-setup.exe.sig
+```
+
+Fields: `version` (semver, unique per target/arch), `installer` (file, named
+`RobustTailor_<version>_x64-setup.exe`, at least 1 MB), `signature` (`.sig` file or text field,
+must start with `untrusted comment:`), optional `notes` (max 4000 chars), `pub_date` (RFC 3339),
+`target` (default `windows`), `arch` (default `x86_64`), `published` (default `true`). The
+response is `201` with the record `{ id, version, notes, pub_date, target, arch, platform,
+file_name, url, sha256, size, published, created_at, updated_at }` (the signature body is not
+returned). Duplicates answer `409`.
+
+- `GET /api/admin/app/releases` lists releases, newest version first.
+- `PATCH /api/admin/app/releases/:id` with `{ "published": false }` and/or `{ "notes": "…" }`
+  unpublishes / republishes or edits the notes. Unpublished releases are never served.
+- `DELETE /api/admin/app/releases/:id` removes the record and the installer, only when unpublished.
+
+**Manual verification** after deploying:
+
+```bash
+curl -i -H "Accept: application/json" https://link.kingmakertech.io/api/app/update/windows/x86_64/2.0.0   # 200 + JSON manifest
+curl -i -H "Accept: application/json" https://link.kingmakertech.io/api/app/update/windows/x86_64/9.9.9   # 204 No Content
+curl -I https://link.kingmakertech.io/releases/RobustTailor_2.1.0_x64-setup.exe                          # 200, Content-Length, application/octet-stream
+```
+
+`npm test` runs the updater test-suite (semver selection, manifest shape, 204/400 cases, artifact
+headers, upload validation and authorisation) without a database.
 
 ## Database
 
@@ -198,7 +245,8 @@ The schema is created and migrated automatically on start-up (`database/setup.js
 statement is idempotent, so existing data is never touched. Tables: `users`, `settings`,
 `user_configs`, `jobs` (incl. `industry` and `summary` columns added via
 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`), `block_list`, `history`, `allowed_emails`,
-`assembly_tokens`, `app_updates`. Indexes cover the hot paths (`jobs(date, industry)`, `history(created_at)`,
+`assembly_tokens`, `app_releases` (RobustTailor releases: version, notes, pub_date, target, arch,
+file_name, signature, sha256, size, published). Indexes cover the hot paths (`jobs(date, industry)`, `history(created_at)`,
 `history(user_id)`).
 
 ## Building the Executable

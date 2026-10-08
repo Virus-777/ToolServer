@@ -104,26 +104,28 @@ const SCHEMA_STATEMENTS = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
-    // Uploaded client application releases (files live in APP_UPDATES_DIR, see utils/app-update.storage.js)
-    `CREATE TABLE IF NOT EXISTS app_updates (
+    // RobustTailor desktop releases for the Tauri updater (installers live in RELEASES_DIR)
+    `CREATE TABLE IF NOT EXISTS app_releases (
         id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        app_name VARCHAR(100) NOT NULL,
         version VARCHAR(50) NOT NULL,
-        changelog TEXT,
+        notes TEXT,
+        pub_date TIMESTAMPTZ,
+        target VARCHAR(20) NOT NULL DEFAULT 'windows',
+        arch VARCHAR(20) NOT NULL DEFAULT 'x86_64',
         file_name VARCHAR(255) NOT NULL,
-        stored_name VARCHAR(255) NOT NULL,
-        file_size BIGINT NOT NULL,
+        signature TEXT NOT NULL,
         sha256 VARCHAR(64) NOT NULL,
-        mandatory BOOLEAN NOT NULL DEFAULT FALSE,
-        download_count INT NOT NULL DEFAULT 0,
+        size BIGINT NOT NULL,
+        published BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (app_name, version)
+        UNIQUE (target, arch, version)
     )`,
     // Indexes backing the hot query paths (jobs feed by date, history listing)
     `CREATE INDEX IF NOT EXISTS idx_jobs_date_industry ON jobs (date, industry)`,
     `CREATE INDEX IF NOT EXISTS idx_history_created_at ON history (created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_history_user_id ON history (user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_app_releases_platform ON app_releases (target, arch, published)`,
 ];
 
 /** Create the application database when it does not exist yet (best effort). */

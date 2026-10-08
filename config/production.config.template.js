@@ -46,11 +46,11 @@ module.exports = {
     STARTUP_PASSWORD_HASHED: 'false',  // Set to 'true' if password is pre-hashed with SHA-256
     STARTUP_MAX_ATTEMPTS: '3',  // Number of password attempts before blocking (default: 3)
 
-    // RobustTailor client releases served by /api/app-updates
-    // Uploaded files are stored outside the executable, relative to the working directory
-    // APP_UPDATES_DIR: 'uploads/app-updates',
-    // APP_UPDATE_MAX_FILE_SIZE_MB: '500',
-    // PUBLIC_BASE_URL: 'https://api.example.com', // origin used in download URLs (set when behind a reverse proxy)
+    // RobustTailor desktop releases (Tauri updater) served by /api/app/update and /releases
+    // Installers are stored outside the executable, relative to the working directory
+    // RELEASES_DIR: 'releases',
+    // APP_RELEASE_MAX_FILE_SIZE_MB: '500',
+    // PUBLIC_BASE_URL: 'https://link.kingmakertech.io', // https origin used in installer URLs (required behind a reverse proxy)
 
     // CORS Settings (optional)
     // Uncomment and configure if you need CORS
