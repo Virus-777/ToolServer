@@ -210,7 +210,7 @@ const ApiTokens = () => {
     <Page>
       <PageHeader
         title="API Tokens"
-        description="Tokens that let other applications read the job list (GET /api/jobs and /api/jobs/today)"
+        description="Tokens that let applications without a user login read the job list (GET /api/jobs and /api/jobs/today). Signed-in users need no token."
         actions={
           <>
             <Button variant="secondary" onClick={loadTokens}>Refresh</Button>

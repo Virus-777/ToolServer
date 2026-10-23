@@ -77,7 +77,7 @@ const modelPath = require.resolve('../database/model');
 require.cache[modelPath] = { id: modelPath, filename: modelPath, loaded: true, exports: fakeModel };
 
 const { createApp } = require('../app');
-const { signAdminToken, signUserToken } = require('../config/auth');
+const { signAdminToken, signUserToken, signLegacyToken } = require('../config/auth');
 const { looksLikeApiToken, hashApiToken, tokenStatus } = require('../utils/api-token');
 const { API_TOKEN } = require('../config/constants');
 
@@ -86,6 +86,9 @@ const { API_TOKEN } = require('../config/constants');
 const adminToken = signAdminToken(store.users[1]);
 const nonAdminToken = signAdminToken(store.users[2]);
 const clientToken = signUserToken(store.users[2]);
+const legacyToken = signLegacyToken(store.users[2]);
+const blockedUserToken = signUserToken({ id: 3, email: 'blocked@test.local', role: 'user' });
+store.users[3] = { id: 3, name: 'Blocked', email: 'blocked@test.local', role: 'user', blocked: 0 };
 
 let server;
 let base;
@@ -201,12 +204,11 @@ test('the job list rejects requests without a credential', async () => {
     assert.equal(today.status, 401);
 });
 
-test('the job list rejects unknown, client and non-admin tokens', async () => {
+test('the job list rejects unknown API tokens, garbage and blocked users', async () => {
     const unknown = `${API_TOKEN.PREFIX}${'f'.repeat(API_TOKEN.RANDOM_BYTES * 2)}`;
     assert.equal((await request('GET', '/api/jobs', { token: unknown })).status, 401);
-    assert.equal((await request('GET', '/api/jobs', { token: clientToken })).status, 401);
-    assert.equal((await request('GET', '/api/jobs', { token: nonAdminToken })).status, 401);
     assert.equal((await request('GET', '/api/jobs', { token: 'garbage' })).status, 401);
+    assert.equal((await request('GET', '/api/jobs', { token: blockedUserToken })).status, 401);
     assert.equal((await request('GET', '/api/jobs', { headers: { 'X-API-Key': unknown } })).status, 401);
 });
 
@@ -231,9 +233,13 @@ test('a generated token grants access via Bearer or X-API-Key and records usage'
     assert.ok(list.body.tokens.find((t) => t.id === body.api_token.id).last_used_at);
 });
 
-test('the dashboard admin session can still read the job list', async () => {
-    assert.equal((await request('GET', '/api/jobs', { token: adminToken })).status, 200);
-    assert.equal((await request('GET', '/api/jobs/today', { token: adminToken })).status, 200);
+test('any signed-in session can read the job list without an API token', async () => {
+    for (const token of [adminToken, clientToken, legacyToken]) {
+        assert.equal((await request('GET', '/api/jobs', { token })).status, 200);
+        assert.equal((await request('GET', '/api/jobs/today', { token })).status, 200);
+    }
+    // The admin token family is admin-only, so an admin-signed token for a plain user is still rejected
+    assert.equal((await request('GET', '/api/jobs', { token: nonAdminToken })).status, 401);
 });
 
 test('other job routes stay unauthenticated', async () => {

@@ -4,7 +4,7 @@ const { authenticateJobsApi } = require('../utils/auth.middleware');
 const router = express.Router();
 
 // Reading the job list requires an API token generated on the dashboard
-// (API Tokens page) or an admin session. The other routes are unchanged (public).
+// (API Tokens page) or a signed-in session (admin, client app user or legacy token). The other routes are unchanged (public).
 router.route('/')
     .get(authenticateJobsApi, getJobs)
     .post(createJob);

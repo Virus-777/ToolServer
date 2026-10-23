@@ -78,10 +78,12 @@ exports.requireAllowedEmail = async (req, res, next) => {
  *
  * Accepts, in this order:
  *   1. an API token generated on the dashboard (Authorization: Bearer / X-API-Key)
- *   2. a dashboard admin session (admin JWT), so the dashboard itself keeps working
+ *   2. a signed-in session: dashboard admin token, client application user token
+ *      or legacy token (whatever /api/admin/login, /api/user/login or
+ *      /api/auth/login issued), so signed-in apps need no separate API token
  *
  * On success `req.apiToken` holds the matching token row (case 1) or `req.user`
- * the admin (case 2).
+ * the signed-in user (case 2).
  */
 exports.authenticateJobsApi = async (req, res, next) => {
     const credential = extractApiToken(req);
@@ -111,13 +113,13 @@ exports.authenticateJobsApi = async (req, res, next) => {
         }
     }
 
-    // Not an API token: fall back to the dashboard session
-    return passport.authenticate('admin-jwt', { session: false }, (error, user) => {
+    // Not an API token: fall back to a signed-in session (any token family)
+    return passport.authenticate(['admin-jwt', 'user-jwt', 'jwt'], { session: false }, (error, user) => {
         if (error) {
             return next(error);
         }
         if (!user) {
-            return handleError(res, 401, 'Invalid API token');
+            return handleError(res, 401, 'Invalid or expired token');
         }
         req.user = user;
         return next();

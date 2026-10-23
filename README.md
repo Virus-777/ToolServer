@@ -112,7 +112,7 @@ Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "m
 | User auth        | `POST /api/user/login`, `POST /api/user/register`, `GET /api/user/verify`, `GET|POST /api/user/assembly-token` | public / user / legacy |
 | Users (legacy)   | `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/auth/verify`, `GET /api/auth/`, `GET|PUT|DELETE /api/auth/:id`, `PATCH /api/auth/:id/block` | public / admin |
 | IP lookup        | `GET /api/ips/lookup/:ip`                                                                          | public                        |
-| Jobs             | `GET /api/jobs`, `GET /api/jobs/today`                                                             | API token or admin            |
+| Jobs             | `GET /api/jobs`, `GET /api/jobs/today`                                                             | API token or signed-in user   |
 |                  | `POST /api/jobs`, `DELETE /api/jobs/by-date?date=YYYY-MM-DD`, `GET|PUT|DELETE /api/jobs/:id`       | public                        |
 | Block list       | `GET|POST /api/block-list`, `GET|PUT|DELETE /api/block-list/:id`                                   | public                        |
 | User configs     | `GET /api/config/all`, `POST /api/config/{prompt,resume,template,folder}`, `GET /api/config/{prompt,resume,template,folder}/:email`, `GET|DELETE /api/config/:email` | public |
@@ -128,7 +128,8 @@ Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "m
 ### Jobs
 
 Reading the job list (`GET /api/jobs`, `GET /api/jobs/today`) requires an **API token** generated on
-the dashboard (API Tokens page, `POST /api/api-tokens`) or a dashboard admin session. Send it as
+the dashboard (API Tokens page, `POST /api/api-tokens`) or any signed-in session token (admin, client
+application user or legacy). Send it as
 `Authorization: Bearer <token>` or `X-API-Key: <token>`. Tokens look like `kmj_<64 hex chars>`; only a
 SHA-256 hash is stored, so the plaintext is shown once at creation. A token can carry an expiry
 (`expires_in_days`), can be revoked (`POST /api/api-tokens/:id/revoke`) and records its last use.
