@@ -112,7 +112,8 @@ Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "m
 | User auth        | `POST /api/user/login`, `POST /api/user/register`, `GET /api/user/verify`, `GET|POST /api/user/assembly-token` | public / user / legacy |
 | Users (legacy)   | `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/auth/verify`, `GET /api/auth/`, `GET|PUT|DELETE /api/auth/:id`, `PATCH /api/auth/:id/block` | public / admin |
 | IP lookup        | `GET /api/ips/lookup/:ip`                                                                          | public                        |
-| Jobs             | `GET|POST /api/jobs`, `GET /api/jobs/today`, `DELETE /api/jobs/by-date?date=YYYY-MM-DD`, `GET|PUT|DELETE /api/jobs/:id` | public |
+| Jobs             | `GET /api/jobs`, `GET /api/jobs/today`                                                             | API token or admin            |
+|                  | `POST /api/jobs`, `DELETE /api/jobs/by-date?date=YYYY-MM-DD`, `GET|PUT|DELETE /api/jobs/:id`       | public                        |
 | Block list       | `GET|POST /api/block-list`, `GET|PUT|DELETE /api/block-list/:id`                                   | public                        |
 | User configs     | `GET /api/config/all`, `POST /api/config/{prompt,resume,template,folder}`, `GET /api/config/{prompt,resume,template,folder}/:email`, `GET|DELETE /api/config/:email` | public |
 | GPT              | `GET /api/gpt/models`, `GET|POST /api/gpt/selected`, `GET|POST /api/gpt/apikey`, `POST /api/gpt/responses` | admin (selected GET + responses public) |
@@ -120,10 +121,21 @@ Send tokens as `Authorization: Bearer <token>`. Errors are always `{ "error": "m
 | History          | `GET /api/history`, `GET /api/history/:id`                                                         | admin                         |
 | Allowed emails   | `GET|POST /api/allowed-emails`, `GET|PUT|DELETE /api/allowed-emails/:id`                           | admin                         |
 | Assembly tokens  | `GET|POST /api/assembly-tokens`, `GET|PUT|DELETE /api/assembly-tokens/:id`                         | admin                         |
+| API tokens       | `GET|POST /api/api-tokens`, `GET|DELETE /api/api-tokens/:id`, `POST /api/api-tokens/:id/revoke`    | admin                         |
 | App updates      | `GET /api/app/update/:target/:arch/:currentVersion`, `GET /releases/:filename`                   | public                        |
 | App releases     | `GET|POST /api/admin/app/releases`, `PATCH|DELETE /api/admin/app/releases/:id`                     | admin                         |
 
 ### Jobs
+
+Reading the job list (`GET /api/jobs`, `GET /api/jobs/today`) requires an **API token** generated on
+the dashboard (API Tokens page, `POST /api/api-tokens`) or a dashboard admin session. Send it as
+`Authorization: Bearer <token>` or `X-API-Key: <token>`. Tokens look like `kmj_<64 hex chars>`; only a
+SHA-256 hash is stored, so the plaintext is shown once at creation. A token can carry an expiry
+(`expires_in_days`), can be revoked (`POST /api/api-tokens/:id/revoke`) and records its last use.
+
+```bash
+curl -H "Authorization: Bearer kmj_…" "https://link.kingmakertech.io/api/jobs?date=2026-09-25&limit=50"
+```
 
 `GET /api/jobs` accepts `date` (YYYY-MM-DD), `industry` (`0` software, `1` civil), `search`
 (matches title, company, tech, summary and description), `page`, `limit` (max 10000) and
@@ -245,7 +257,8 @@ The schema is created and migrated automatically on start-up (`database/setup.js
 statement is idempotent, so existing data is never touched. Tables: `users`, `settings`,
 `user_configs`, `jobs` (incl. `industry` and `summary` columns added via
 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`), `block_list`, `history`, `allowed_emails`,
-`assembly_tokens`, `app_releases` (RobustTailor releases: version, notes, pub_date, target, arch,
+`assembly_tokens`, `api_tokens` (hashed jobs-feed tokens: name, token_hash, token_prefix, created_by,
+expires_at, revoked_at, last_used_at), `app_releases` (RobustTailor releases: version, notes, pub_date, target, arch,
 file_name, signature, sha256, size, published). Indexes cover the hot paths (`jobs(date, industry)`, `history(created_at)`,
 `history(user_id)`).
 

@@ -15,5 +15,6 @@ module.exports = {
     ...require('./models/history'),
     ...require('./models/allowed-emails'),
     ...require('./models/assembly-tokens'),
+    ...require('./models/api-tokens'),
     ...require('./models/app-releases'),
 };

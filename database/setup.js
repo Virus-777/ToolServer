@@ -104,6 +104,18 @@ const SCHEMA_STATEMENTS = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+    // Tokens generated in the dashboard that let other applications read the jobs feed
+    `CREATE TABLE IF NOT EXISTS api_tokens (
+        id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        token_hash CHAR(64) UNIQUE NOT NULL,
+        token_prefix VARCHAR(20) NOT NULL,
+        created_by INT,
+        expires_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        last_used_at TIMESTAMPTZ,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
     // RobustTailor desktop releases for the Tauri updater (installers live in RELEASES_DIR)
     `CREATE TABLE IF NOT EXISTS app_releases (
         id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

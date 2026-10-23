@@ -23,6 +23,7 @@ const ENTITY_OPTIONS = [
   { value: 'config', label: 'Config' },
   { value: 'allowed_email', label: 'Allowed Email' },
   { value: 'assembly_token', label: 'Assembly Token' },
+  { value: 'api_token', label: 'API Token' },
   { value: 'app_release', label: 'App Release' },
 ];
 

@@ -39,6 +39,7 @@ const HISTORY_ENTITIES = Object.freeze({
     CONFIG: 'config',
     ALLOWED_EMAIL: 'allowed_email',
     ASSEMBLY_TOKEN: 'assembly_token',
+    API_TOKEN: 'api_token',
     APP_RELEASE: 'app_release',
 });
 
@@ -57,6 +58,18 @@ const PAGINATION = Object.freeze({
 
 // Time zone that defines "today" for the jobs feed consumed by the client app
 const JOBS_TIME_ZONE = 'America/Los_Angeles';
+
+// API tokens that external applications use to read the jobs feed (/api/jobs, /api/jobs/today)
+const API_TOKEN = Object.freeze({
+    // Plaintext tokens look like "kmj_<64 hex chars>"; the prefix makes them easy to recognise in logs/configs
+    PREFIX: 'kmj_',
+    RANDOM_BYTES: 32,
+    // Characters of the plaintext kept for display in the dashboard
+    DISPLAY_PREFIX_LENGTH: 12,
+    NAME_MAX_LENGTH: 100,
+    // Optional lifetime cap; 0 / unset in the request means the token never expires
+    MAX_EXPIRES_IN_DAYS: 3650,
+});
 
 // RobustTailor desktop app releases (Tauri updater) served by /api/app/update and /releases
 const APP_RELEASE = Object.freeze({
@@ -87,4 +100,5 @@ module.exports = {
     PAGINATION,
     JOBS_TIME_ZONE,
     APP_RELEASE,
+    API_TOKEN,
 };

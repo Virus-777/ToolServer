@@ -16,6 +16,7 @@ const History = lazy(() => import('./pages/History'));
 const AllowedEmails = lazy(() => import('./pages/AllowedEmails'));
 const AssemblyTokens = lazy(() => import('./pages/AssemblyTokens'));
 const AppReleases = lazy(() => import('./pages/AppReleases'));
+const ApiTokens = lazy(() => import('./pages/ApiTokens'));
 
 const FullScreenLoader = () => (
   <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -23,7 +24,11 @@ const FullScreenLoader = () => (
   </div>
 );
 
-/** Pages reachable without logging in (jobs + user configs are public by design). */
+/**
+ * Pages reachable without logging in (user configs are public by design).
+ * The job list API now requires an API token or an admin session, so the Jobs
+ * page is only available after logging in.
+ */
 const PublicLayout = () => (
   <div className="min-h-screen bg-gray-50">
     <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
@@ -40,7 +45,6 @@ const PublicLayout = () => (
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/configs" element={<Configs />} />
-          <Route path="/jobs" element={<Jobs />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Suspense>
@@ -85,6 +89,7 @@ const AdminLayout = () => {
               <Route path="/allowed-emails" element={<AllowedEmails />} />
               <Route path="/assembly-tokens" element={<AssemblyTokens />} />
               <Route path="/app-releases" element={<AppReleases />} />
+              <Route path="/api-tokens" element={<ApiTokens />} />
               <Route path="*" element={<Navigate to="/users" replace />} />
             </Routes>
           </Suspense>

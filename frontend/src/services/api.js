@@ -262,10 +262,14 @@ const pickJobFields = ({ title, company, date, tech, url, summary, description, 
 
 export const JobsAPI = {
   /**
+   * The job list requires an API token or the admin session (see ApiTokensAPI),
+   * so the stored session token is attached.
    * @param {object} filters { date, page, limit, search, orderDirection, industry }
    */
   getAll: ({ date, page = 1, limit = 20, search, orderDirection = 'ASC', industry } = {}) =>
-    apiRequest(`/jobs${buildQuery({ date, search, industry, page, limit, orderDirection })}`, { skipAuth: true }),
+    apiRequest(`/jobs${buildQuery({ date, search, industry, page, limit, orderDirection })}`),
+  /** Absolute URL of a jobs endpoint, for the usage examples shown to the user. */
+  absoluteUrl: (endpoint) => new URL(`${API_BASE}${endpoint}`, window.location.origin).href,
   getById: (id) => apiRequest(`/jobs/${id}`, { skipAuth: true }),
   create: (job) => apiRequest('/jobs', { method: 'POST', body: pickJobFields(job), skipAuth: true }),
   update: (id, job) => apiRequest(`/jobs/${id}`, { method: 'PUT', body: pickJobFields(job), skipAuth: true }),
@@ -304,6 +308,19 @@ export const AssemblyTokenAPI = {
   create: (user_id, api_key) => apiRequest('/assembly-tokens/', { method: 'POST', body: { user_id, api_key } }),
   update: (id, user_id, api_key) => apiRequest(`/assembly-tokens/${id}`, { method: 'PUT', body: { user_id, api_key } }),
   delete: (id) => apiRequest(`/assembly-tokens/${id}`, { method: 'DELETE' }),
+};
+
+/**
+ * Tokens that other applications use to read the job list. The plaintext token is
+ * returned only by `create`; afterwards the server knows just its hash.
+ */
+export const ApiTokensAPI = {
+  getAll: () => apiRequest('/api-tokens/'),
+  getById: (id) => apiRequest(`/api-tokens/${id}`),
+  /** @param {{ name: string, expires_in_days?: number }} data */
+  create: ({ name, expires_in_days }) => apiRequest('/api-tokens/', { method: 'POST', body: { name, expires_in_days } }),
+  revoke: (id) => apiRequest(`/api-tokens/${id}/revoke`, { method: 'POST' }),
+  delete: (id) => apiRequest(`/api-tokens/${id}`, { method: 'DELETE' }),
 };
 
 /** RobustTailor desktop releases for the Tauri updater (see /api/app/update and /api/admin/app/releases). */
